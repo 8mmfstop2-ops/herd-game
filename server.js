@@ -138,7 +138,7 @@ app.post("/api/questions", requireAdmin, async (req, res) => {
 
 // --- Player join page ---
 app.get("/player", (req, res) =>
-  res.sendFile(path.join(__dirname, "public", "player.html"))
+  res.sendFile(path.join(__dirname, "public", "player-page.html"))
 );
 
 // --- Socket.IO ---
