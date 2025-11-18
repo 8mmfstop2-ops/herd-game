@@ -3,25 +3,44 @@
 <head>
   <meta charset="utf-8" />
   <title>Herd Mentality Game — Player</title>
-  <link rel="stylesheet" href="style.css">
   <script src="/socket.io/socket.io.js"></script>
   <style>
+    :root {
+      --bg1: #fdfcfb;
+      --bg2: #e8f5e9;
+      --accent: #2e7d32;
+      --accent-dark: #1b5e20;
+      --muted: #6b826c;
+      --border: #a5d6a7;
+      --error: #c62828;
+    }
+
     body {
       font-family: 'Segoe UI', Arial, sans-serif;
-      background: linear-gradient(135deg, #fdfcfb, #e8f5e9);
-      max-width: 900px;
-      margin: 40px auto;
+      background: linear-gradient(135deg, var(--bg1), var(--bg2));
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 20px;
+    }
+
+    .card {
+      background: #fff;
       padding: 30px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      color: #333;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      width: 100%;
+      max-width: 900px;
+      animation: fadeIn 0.6s ease;
     }
 
     h2 {
       font-size: 32px;
       margin-bottom: 10px;
       text-align: center;
-      color: #2e7d32;
+      color: var(--accent-dark);
     }
 
     #roomLabel {
@@ -29,6 +48,7 @@
       text-align: center;
       margin-bottom: 20px;
       font-weight: 500;
+      color: var(--muted);
     }
 
     #players {
@@ -42,10 +62,11 @@
     }
 
     #players li {
-      background: #c8e6c9;
+      background: var(--bg2);
       padding: 8px 14px;
       border-radius: 6px;
       font-size: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
 
     #controls {
@@ -61,7 +82,7 @@
       border: none;
       border-radius: 8px;
       cursor: pointer;
-      background: #2e7d32;
+      background: var(--accent);
       color: #fff;
       transition: background 0.3s ease, transform 0.2s ease;
     }
@@ -72,19 +93,20 @@
     }
 
     button:hover:not(:disabled) {
-      background: #1b5e20;
+      background: var(--accent-dark);
       transform: translateY(-2px);
     }
 
     #questionBox {
       margin-top: 30px;
       text-align: center;
+      display: none;
     }
 
     #questionBox h3 {
       font-size: 24px;
       margin-bottom: 10px;
-      color: #2e7d32;
+      color: var(--accent-dark);
     }
 
     #questionPrompt {
@@ -96,31 +118,37 @@
       width: 100%;
       max-width: 600px;
       font-size: 16px;
-      padding: 10px;
-      border: 1px solid #a5d6a7;
-      border-radius: 6px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
       margin-bottom: 15px;
+      background: #fafafa;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
     }
 
-    #submitAnswerBtn {
-      margin-top: 10px;
+    #answerInput:focus {
+      border-color: var(--accent);
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(46,125,50,0.12);
+      background: #fff;
     }
 
     #progress {
       margin-top: 12px;
       font-size: 14px;
-      color: #555;
+      color: var(--muted);
     }
 
     #answersTableWrapper {
       margin-top: 40px;
+      display: none;
     }
 
     #answersTableWrapper h3 {
       font-size: 24px;
       margin-bottom: 15px;
       text-align: center;
-      color: #2e7d32;
+      color: var(--accent-dark);
     }
 
     #answersTable {
@@ -140,49 +168,102 @@
     }
 
     #answersTable th {
-      background: #c8e6c9;
+      background: var(--bg2);
       font-weight: 600;
     }
 
     #answersTable tr:nth-child(even) {
       background: #f9f9f9;
     }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body>
-  <h2>Game Room</h2>
-  <p id="roomLabel"></p>
-  <ul id="players"></ul>
+  <div class="card">
+    <h2>Game Room</h2>
+    <p id="roomLabel"></p>
+    <ul id="players"></ul>
 
-  <div id="controls">
-    <button id="startBtn">Start Round</button>
-    <button id="showAnswersBtn" disabled>Show Answers</button>
-    <button id="nextRoundBtn" disabled>Next Round</button>
-  </div>
+    <div id="controls">
+      <button id="startBtn">Start Round</button>
+      <button id="showAnswersBtn" disabled>Show Answers</button>
+      <button id="nextRoundBtn" disabled>Next Round</button>
+    </div>
 
-  <div id="questionBox" style="display:none;">
-    <h3>Question</h3>
-    <p id="questionPrompt"></p>
-    <textarea id="answerInput" rows="4" cols="50" placeholder="Type your answer..."></textarea>
-    <button id="submitAnswerBtn">Submit Answer</button>
-    <p id="progress"></p>
-  </div>
+    <div id="questionBox">
+      <h3>Question</h3>
+      <p id="questionPrompt"></p>
+      <textarea id="answerInput" rows="4" cols="50" placeholder="Type your answer..."></textarea>
+      <button id="submitAnswerBtn">Submit Answer</button>
+      <p id="progress"></p>
+    </div>
 
-  <div id="answersTableWrapper" style="display:none;">
-    <h3>Answers</h3>
-    <table id="answersTable">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Answer</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div id="answersTableWrapper">
+      <h3>Answers</h3>
+      <table id="answersTable">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Answer</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </div>
 
   <script>
-    // Same JS logic you pasted earlier (joinLobby, startRound, submitAnswer, etc.)
-  </script>
-</body>
-</html>
+    const params = new URLSearchParams(window.location.search);
+    const roomCode = params.get('room');
+    const name = params.get('name');
+    document.getElementById('roomLabel').textContent = `Room: ${roomCode} — Player: ${name}`;
+
+    const socket = io();
+    socket.emit('joinLobby', { roomCode, name });
+
+    socket.on('playerList', (players) => {
+      const list = document.getElementById('players');
+      list.innerHTML = players.map(p => `<li>${p}</li>`).join('');
+    });
+
+    document.getElementById('startBtn').onclick = () => {
+      socket.emit('startRound', { roomCode });
+    };
+
+    document.getElementById('submitAnswerBtn').onclick = () => {
+      const answer = document.getElementById('answerInput').value.trim();
+      if (answer) {
+        socket.emit('submitAnswer', { roomCode, name, questionId: currentQuestionId, answer });
+      }
+    };
+
+    document.getElementById('showAnswersBtn').onclick = () => {
+      socket.emit('showAnswers', { roomCode });
+    };
+
+    document.getElementById('nextRoundBtn').onclick = () => {
+      socket.emit('nextRound', { roomCode });
+    };
+
+    let currentQuestionId = null;
+
+    socket.on('roundStarted', (data) => {
+      currentQuestionId = data.questionId;
+      document.getElementById('questionPrompt').textContent = data.prompt;
+      document.getElementById('questionBox').style.display = 'block';
+      document.getElementById('answersTableWrapper').style.display = 'none';
+      document.getElementById('showAnswersBtn').disabled = true;
+      document.getElementById('nextRoundBtn').disabled = true;
+    });
+
+    socket.on('submissionProgress', (progress) => {
+      document.getElementById('progress').textContent =
+        `Submitted: ${progress.submittedCount}/${progress.totalPlayers}`;
+    });
+
+    socket.on('allSubmitted', () => {
+      document.getElementById('showAnswersBtn').disabled =

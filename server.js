@@ -3,6 +3,7 @@ const http = require("http");
 const path = require("path");
 const session = require("express-session");
 const pg = require("pg");
+const pgSession = require("connect-pg-simple")(session);
 const { Server } = require("socket.io");
 const bodyParser = require("body-parser");
 
@@ -23,13 +24,21 @@ const io = new Server(server);
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// ✅ Use Postgres-backed session store
 app.use(
   session({
+    store: new pgSession({
+      pool: pool,
+      tableName: "session"
+    }),
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days
   })
 );
+
 app.use(express.static(path.join(__dirname, "public")));
 
 // --- DB bootstrap ---
@@ -141,6 +150,16 @@ app.get("/player", (req, res) =>
   res.sendFile(path.join(__dirname, "public", "player-page.html"))
 );
 
+// --- Player join API with DB check ---
+app.post("/api/player/join", async (req, res) => {
+  const { name, roomCode } = req.body;
+  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [roomCode]);
+  if (!room.rowCount) return res.status(404).json({ error: "Room not found" });
+  if (room.rows[0].status !== "open") return res.status(400).json({ error: "Room closed" });
+  await pool.query("INSERT INTO players (room_code,name) VALUES ($1,$2)", [roomCode, name]);
+  res.json({ ok: true });
+});
+
 // --- Socket.IO ---
 io.on("connection", (socket) => {
   socket.on("joinLobby", async ({ roomCode, name }) => {
@@ -192,8 +211,14 @@ io.on("connection", (socket) => {
       [questionId, name, answer]
     );
 
-    const subs = await pool.query("SELECT COUNT(*)::int AS c FROM submissions WHERE round_id=$1", [questionId]);
-    const players = await pool.query("SELECT COUNT(*)::int AS c FROM players WHERE room_code=$1", [roomCode]);
+    const subs = await pool.query(
+      "SELECT COUNT(*)::int AS c FROM submissions WHERE round_id=$1",
+      [questionId]
+    );
+    const players = await pool.query(
+      "SELECT COUNT(*)::int AS c FROM players WHERE room_code=$1",
+      [roomCode]
+    );
 
     io.to(roomCode).emit("submissionProgress", {
       submittedCount: subs.rows[0].c,
@@ -228,3 +253,8 @@ io.on("connection", (socket) => {
 initDb().then(() => {
   server.listen(PORT, () => console.log(`🚀 Server running on ${PORT}`));
 });
+
+	
+	
+	
+	
