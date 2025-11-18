@@ -25,7 +25,7 @@ const io = new Server(server);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// ✅ Use Postgres-backed session store
+// Use Postgres-backed session store
 app.use(
   session({
     store: new pgSession({
@@ -75,9 +75,17 @@ async function initDb() {
       answer TEXT NOT NULL,
       submitted_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS "session" (
+      "sid" varchar NOT NULL COLLATE "default",
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL,
+      PRIMARY KEY ("sid")
+    );
+	
   `;
   await pool.query(schema);
-  console.log("✅ Database tables ensured.");
+  console.log("Database tables ensured.");
 }
 
 // --- Auth guard ---
@@ -251,7 +259,7 @@ io.on("connection", (socket) => {
 });
 
 initDb().then(() => {
-  server.listen(PORT, () => console.log(`🚀 Server running on ${PORT}`));
+  server.listen(PORT, () => console.log(`Server running on ${PORT}`));
 });
 
 	
