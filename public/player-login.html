@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Player Login — Herd Mentality Game</title>
+  <style>
+    :root {
+      --bg1: #e8f5e9;      /* soft green */
+      --bg2: #c8e6c9;      /* softer green */
+      --accent: #2e7d32;   /* button + focus */
+      --accent-dark: #1b5e20;
+      --text: #1f2d20;
+      --muted: #6b826c;
+      --border: #a5d6a7;
+    }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: linear-gradient(135deg, var(--bg1), var(--bg2));
+      max-width: 720px;
+      margin: 60px auto;
+      padding: 32px;
+      border-radius: 14px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+      color: var(--text);
+    }
+
+    h1 {
+      font-size: 28px;
+      margin: 0 0 24px;
+      color: var(--accent-dark);
+      text-align: center;
+    }
+
+    /* Form grid using flexbox rows (gflex bbox) */
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 14px; /* consistent vertical rhythm between rows */
+    }
+
+    .form-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;           /* spacing between label and input */
+    }
+
+    .form-row label {
+      flex: 0 0 120px;     /* fixed label column width */
+      font-size: 18px;
+      color: var(--muted);
+    }
+
+    .form-row input {
+      flex: 1 1 auto;      /* input grows to fill remaining space */
+      font-size: 18px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    .form-row input:focus {
+      border-color: var(--accent);
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(46,125,50,0.12);
+    }
+
+    /* Button matches input width by aligning with grid, placed in its own row */
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .actions .spacer {
+      flex: 0 0 120px; /* aligns with label column */
+    }
+
+    .actions button {
+      flex: 1 2 auto;  /* same width as inputs */
+      font-size: 24px;
+      padding: 22px 14px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.25s ease, transform 0.15s ease;
+    }
+
+    .actions button:hover {
+      background: var(--accent-dark);
+      transform: translateY(-1px);
+    }
+
+    #msg {
+      margin-top: 10px;
+      font-size: 16px;
+      color: #c62828;
+      min-height: 20px;
+    }
+
+    /* Mobile: stack labels above inputs for better usability */
+    @media (max-width: 520px) {
+      .form-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .form-row label {
+        flex: unset;
+      }
+      .actions {
+        flex-direction: column;
+      }
+      .actions .spacer {
+        display: none;
+      }
+      .actions button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Herd Mentality Game: Join Game</h1>
+
+  <form id="joinForm">
+    <div class="form-row">
+      <label for="name">Your Name</label>
+      <input id="name" name="name" autocomplete="name" />
+    </div>
+
+    <div class="form-row">
+      <label for="roomCode">Room Code</label>
+      <input id="roomCode" name="roomCode" autocomplete="one-time-code" />
+    </div>
+
+    <div class="actions">
+      <div class="spacer" aria-hidden="true"></div>
+      <button type="submit">Enter Lobby</button>
+    </div>
+  </form>
+
+  <div id="msg"></div>
+
+  <script>
+    const form = document.getElementById('joinForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const name = String(fd.get('name') || '').trim();
+      const roomCode = String(fd.get('roomCode') || '').trim();
+
+      if (!name || !roomCode) {
+        document.getElementById('msg').textContent = 'Please enter both name and room code.';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/player/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, roomCode })
+        });
+
+        if (res.ok) {
+          location.href = `/lobby/${encodeURIComponent(roomCode)}?name=${encodeURIComponent(name)}`;
+        } else {
+          const j = await res.json().catch(() => ({}));
+          document.getElementById('msg').textContent = j.error || 'Error joining';
+        }
+      } catch {
+        document.getElementById('msg').textContent = 'Network error. Please try again.';
+      }
+    });
+  </script>
+</body>
+</html>
