@@ -1,0 +1,7 @@
+/* public/style.css */
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 800px; margin: 24px auto; padding: 0 16px; }
+h2, h3, h4 { margin-bottom: 8px; }
+input, textarea, select { width: 100%; margin: 8px 0; padding: 8px; font-size: 16px; }
+button { margin: 8px 0; padding: 8px 12px; font-size: 16px; cursor: pointer; }
+#players { margin: 8px 0; }
+table { width: 100%; }
