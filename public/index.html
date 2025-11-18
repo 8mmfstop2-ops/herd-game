@@ -1,43 +1,64 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Herd Mentality Game</title>
+  <meta charset="UTF-8">
+  <title>Questions</title>
   <style>
     body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      background: linear-gradient(135deg, #fdfcfb, #e2d1c3);
-      max-width: 800px;
-      margin: 100px auto;
-      text-align: center;
-      padding: 30px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+      background: #f0f0f0;
     }
-    h1 { font-size: 36px; margin-bottom: 20px; }
-    .btn {
-      display: inline-block;
-      padding: 14px 24px;
-      margin: 12px;
-      font-size: 18px;
-      background: #333;
-      color: #fff;
-      text-decoration: none;
-      border-radius: 8px;
-      transition: background 0.3s ease;
+    h1 {
+      color: #333;
     }
-    .btn:hover { background: #F7AC4D; }
-    p { margin-top: 60px; font-size: 15px; color: #444; }
+    #questions {
+      margin-top: 1rem;
+      padding: 0;
+      list-style: none;
+    }
+    #questions li {
+      background: #fff;
+      margin-bottom: 0.5rem;
+      padding: 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .qid {
+      font-weight: bold;
+      margin-right: 0.5rem;
+      color: #555;
+    }
   </style>
 </head>
 <body>
-  <h1>🐮 Herd Mentality Game</h1>
-  <p><strong>Welcome! Choose your path:</strong></p>
-  <div>
-    <a class="btn" href="/player-login.html">Join as Player</a>
-    <a class="btn" href="/admin-login.html">Admin Login</a>
-  </div>
-  <p>Players: Click on Join as Player. Enter your name and room code on the next screen..<br>
-     Admins: Click on Admin Login to create rooms and manage questions.</p>
+  <h1>Questions from Database</h1>
+  <ul id="questions"></ul>
+
+  <script>
+    async function loadQuestions() {
+      try {
+        const res = await fetch('/questions');
+        if (!res.ok) throw new Error('Failed to fetch questions');
+        const questions = await res.json();
+
+        const list = document.getElementById('questions');
+        list.innerHTML = '';
+
+        questions.forEach(q => {
+          const li = document.createElement('li');
+          li.innerHTML = `<span class="qid">#${q.id}</span> ${q.prompt}`;
+          list.appendChild(li);
+        });
+      } catch (err) {
+        document.getElementById('questions').innerHTML =
+          '<li>Error loading questions.</li>';
+        console.error(err);
+      }
+    }
+
+    // Load on page start
+    loadQuestions();
+  </script>
 </body>
 </html>
