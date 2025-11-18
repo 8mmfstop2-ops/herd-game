@@ -1,118 +1,39 @@
-<!-- public/admin.html -->
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-  <title>Admin - Herd Mentality Game</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <title>Admin Login — Herd Mentality Game</title>
+  <style>
+    body { font-family: Arial; max-width: 600px; margin: 40px auto; }
+    input, button { font-size: 16px; padding: 8px; margin: 6px 0; width: 100%; }
+  </style>
 </head>
 <body>
-  <h2>Admin Login</h2>
-  <input id="username" placeholder="Username" value="game-admin">
-  <input id="password" type="password" placeholder="Password" value="Rainbow6GoldenEye">
-  <button id="loginBtn">Login</button>
-  <p id="loginStatus"></p>
-
-  <div id="adminPanel" style="display:none;">
-    <h3>Create Room</h3>
-    <input id="roomCode" placeholder="Enter room code">
-    <button id="createRoomBtn">Create</button>
-    <p id="createRoomStatus"></p>
-
-    <h3>Update Room Status</h3>
-    <input id="updateCode" placeholder="Room code">
-    <select id="newStatus">
-      <option value="open">Open</option>
-      <option value="closed">Closed</option>
-    </select>
-    <button id="updateStatusBtn">Update</button>
-    <p id="updateStatusMsg"></p>
-
-    <h3>Manage Questions</h3>
-    <textarea id="questionPrompt" rows="3" placeholder="Enter a question prompt"></textarea>
-    <button id="addQuestionBtn">Add Question</button>
-    <p id="addQuestionMsg"></p>
-
-    <h4>Existing Questions</h4>
-    <ul id="questionList"></ul>
-  </div>
-
+  <h1>Admin Login</h1>
+  <form id="loginForm">
+    <label>Username</label>
+    <input name="username" />
+    <label>Password</label>
+    <input name="password" type="password" />
+    <button type="submit">Login</button>
+  </form>
+  <div id="msg"></div>
   <script>
-    let loggedIn = false;
-
-    async function refreshQuestions() {
-      const res = await fetch("/questions");
-      const items = await res.json();
-      const ul = document.getElementById("questionList");
-      ul.innerHTML = items.map(q => `<li><strong>#${q.id}:</strong> ${escapeHTML(q.prompt)}</li>`).join("");
-    }
-
-    document.getElementById("loginBtn").onclick = async () => {
-      const username = document.getElementById("username").value;
-      const password = document.getElementById("password").value;
-      const res = await fetch("/admin-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
+    const form = document.getElementById('loginForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') })
       });
-      const data = await res.json();
-      if (data.success) {
-        loggedIn = true;
-        document.getElementById("loginStatus").innerText = "Login successful.";
-        document.getElementById("adminPanel").style.display = "block";
-        refreshQuestions();
+      if (res.ok) {
+        location.href = '/admin/dashboard';
       } else {
-        document.getElementById("loginStatus").innerText = data.error || "Login failed.";
+        document.getElementById('msg').textContent = 'Invalid login';
       }
-    };
-
-    document.getElementById("createRoomBtn").onclick = async () => {
-      const code = document.getElementById("roomCode").value.trim();
-      if (!code) return (document.getElementById("createRoomStatus").innerText = "Enter a room code.");
-      const res = await fetch("/create-room", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code })
-      });
-      const data = await res.json();
-      document.getElementById("createRoomStatus").innerText = data.success ? `Room created: ${data.roomCode}` : data.error;
-    };
-
-    document.getElementById("updateStatusBtn").onclick = async () => {
-      const code = document.getElementById("updateCode").value.trim();
-      const status = document.getElementById("newStatus").value;
-      const res = await fetch("/update-room-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, status })
-      });
-      const data = await res.json();
-      document.getElementById("updateStatusMsg").innerText = data.success ? 
-        `Room ${data.roomCode} is now ${data.newStatus}` : data.error;
-    };
-
-    document.getElementById("addQuestionBtn").onclick = async () => {
-      const prompt = document.getElementById("questionPrompt").value.trim();
-      if (!prompt) return (document.getElementById("addQuestionMsg").innerText = "Enter a question.");
-      const res = await fetch("/add-question", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt })
-      });
-      const data = await res.json();
-      if (data.success) {
-        document.getElementById("addQuestionMsg").innerText = `Added question #${data.question.id}`;
-        document.getElementById("questionPrompt").value = "";
-        refreshQuestions();
-      } else {
-        document.getElementById("addQuestionMsg").innerText = data.error || "Failed to add question.";
-      }
-    };
-
-    function escapeHTML(str) {
-      const div = document.createElement('div');
-      div.innerText = str;
-      return div.innerHTML;
-    }
+    });
   </script>
 </body>
 </html>
