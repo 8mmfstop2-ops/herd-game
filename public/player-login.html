@@ -32,27 +32,26 @@
       text-align: center;
     }
 
-    /* Form grid using flexbox rows (gflex bbox) */
     form {
       display: flex;
       flex-direction: column;
-      gap: 14px; /* consistent vertical rhythm between rows */
+      gap: 14px;
     }
 
     .form-row {
       display: flex;
       align-items: center;
-      gap: 12px;           /* spacing between label and input */
+      gap: 12px;
     }
 
     .form-row label {
-      flex: 0 0 120px;     /* fixed label column width */
+      flex: 0 0 120px;
       font-size: 18px;
       color: var(--muted);
     }
 
     .form-row input {
-      flex: 1 1 auto;      /* input grows to fill remaining space */
+      flex: 1 1 auto;
       font-size: 18px;
       padding: 10px 12px;
       border: 1px solid var(--border);
@@ -67,7 +66,6 @@
       box-shadow: 0 0 0 3px rgba(46,125,50,0.12);
     }
 
-    /* Button matches input width by aligning with grid, placed in its own row */
     .actions {
       display: flex;
       align-items: center;
@@ -75,11 +73,11 @@
     }
 
     .actions .spacer {
-      flex: 0 0 120px; /* aligns with label column */
+      flex: 0 0 120px;
     }
 
     .actions button {
-      flex: 1 2 auto;  /* same width as inputs */
+      flex: 1 2 auto;
       font-size: 24px;
       padding: 22px 14px;
       background: var(--accent);
@@ -102,7 +100,6 @@
       min-height: 20px;
     }
 
-    /* Mobile: stack labels above inputs for better usability */
     @media (max-width: 520px) {
       .form-row {
         flex-direction: column;
@@ -129,12 +126,12 @@
   <form id="joinForm">
     <div class="form-row">
       <label for="name">Your Name</label>
-      <input id="name" name="name" autocomplete="name" />
+      <input id="name" name="name" autocomplete="name" required />
     </div>
 
     <div class="form-row">
       <label for="roomCode">Room Code</label>
-      <input id="roomCode" name="roomCode" autocomplete="one-time-code" />
+      <input id="roomCode" name="roomCode" autocomplete="one-time-code" required />
     </div>
 
     <div class="actions">
@@ -166,7 +163,8 @@
         });
 
         if (res.ok) {
-          location.href = `/lobby/${encodeURIComponent(roomCode)}?name=${encodeURIComponent(name)}`;
+          // ✅ Correct redirect to /player (serves player-page.html)
+          location.href = `/player?room=${encodeURIComponent(roomCode)}&name=${encodeURIComponent(name)}`;
         } else {
           const j = await res.json().catch(() => ({}));
           document.getElementById('msg').textContent = j.error || 'Error joining';
