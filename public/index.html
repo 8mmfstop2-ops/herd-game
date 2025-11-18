@@ -38,7 +38,7 @@
   <script>
     async function loadQuestions() {
       try {
-        const res = await fetch('/questions');
+        const res = await fetch('/questions'); // matches your backend route
         if (!res.ok) throw new Error('Failed to fetch questions');
         const questions = await res.json();
 
