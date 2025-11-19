@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Player Board — Herd Mentality Game</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width:900px; margin:20px auto; }
+    #players { list-style:none; padding:0; }
+    #players li { padding:4px 0; }
+    #controls { margin:16px 0; }
+    #questionBox { margin-top:16px; }
+    #answersTable { font-size:22px; border-collapse:collapse; width:100%; }
+    #answersTable th,#answersTable td { border-bottom:1px solid #ccc; padding:8px; text-align:left; }
+    textarea { width:100%; max-width:800px; }
+  </style>
+</head>
+<body>
+  <h2>Player Board</h2>
+  <p id="roomLabel"></p>
+  <ul id="players"></ul>
+  <div id="controls">
+    <button id="startBtn">Start Round</button>
+    <button id="showAnswersBtn" disabled>Show Answers</button>
+  </div>
+  <div id="questionBox" style="display:none;">
+    <h3>Question</h3>
+    <p id="questionPrompt"></p>
+    <textarea id="answerInput" rows="4" placeholder="Type your answer..."></textarea>
+    <button id="submitAnswerBtn">Submit Answer</button>
+    <p id="progress"></p>
+  </div>
+  <div id="answersTableWrapper" style="display:none;">
+    <h3>Answers</h3>
+    <table id="answersTable"><thead><tr><th>Name</th><th>Answer</th></tr></thead><tbody></tbody></table>
+  </div>
+  <script>
+    const urlParams=new URLSearchParams(window.location.search);
+    const roomCode=(urlParams.get("room")||"").toUpperCase();
+    const myName=urlParams.get("name")||"";
+    document.getElementById("roomLabel").innerText=`Room: ${roomCode} — You: ${myName}`;
+    const socket=io();
+    socket.emit("joinLobby",{roomCode,name:myName});
+    socket.on("playerList",names=>{document.getElementById("players").innerHTML=names.map(n=>`<li>${escapeHTML(n)}</li>`).join("");});
+    document.getElementById("startBtn").onclick=()=>{socket.emit("startRound",{roomCode});};
+    socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber})=>{
+      document.getElementById("questionBox").style.display="block";
+      document.getElementById("answersTableWrapper").style.display="none";
+      document.getElementById("showAnswersBtn").disabled=true;
+      document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
+      document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
+      document.getElementById("submitAnswerBtn").disabled=false;
+      document.getElementById("answerInput").disabled=false;
+      document.getElementById("answerInput").value="";
+      document.getElementById("submitAnswerBtn").onclick=()=>{const answer=document.getElementById("answerInput").value.trim();if(!answer)return;socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});document.getElementById("submitAnswerBtn").disabled=true;document.getElementById("answerInput").disabled=true;};
+    });
+    socket.on("submissionProgress",({submittedCount,totalPlayers})=>{document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;});
+    socket.on("allSubmitted",()=>{document.getElementById("showAnswersBtn").disabled=false;});
+    document.getElementById("showAnswersBtn").onclick=()=>{socket.emit("showAnswers",{roomCode});};
+    socket.on("answersRevealed",rows=>{document.querySelector("#answersTable tbody").innerHTML=rows.map(r=>`<tr><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.answer)}</td></tr>`).join("");document.getElementById("answersTableWrapper").style.display="block";});
+    function escapeHTML(str){const div=document.createElement('div');div.innerText=String(str||"");return div.innerHTML;}
+  </script>
+</body>
+</html>
