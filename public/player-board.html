@@ -12,14 +12,14 @@
       background: linear-gradient(135deg, #fdfcfb, #e2d1c3);
       padding: 20px;
       border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      box-shadow:0 4px 12px rgba(0,0,0,0.1);
     }
     h2 { text-align:center; margin-bottom:20px; }
-    #roomLabel { font-weight:bold; margin-bottom:12px; }
+
     #players { list-style:none; padding:0; margin:10px 0; }
     #players li { padding:6px 0; border-bottom:1px solid #ddd; }
-    #controls { margin:20px 0; text-align:center; }
     #statusMessage { font-weight:bold; margin-top:10px; text-align:center; color:#444; }
+
     button {
       padding:10px 18px;
       margin:6px;
@@ -33,13 +33,33 @@
     }
     button:hover:enabled { background:#F7AC4D; }
     button:disabled { background:#999; cursor:not-allowed; }
-    #questionBox, #answersTableWrapper {
+
+    .accordion {
       margin-top:20px;
-      padding:15px;
-      background:#fff;
       border-radius:8px;
+      overflow:hidden;
       box-shadow:0 2px 6px rgba(0,0,0,0.1);
     }
+    .accordion-header {
+      background:#333;
+      color:#fff;
+      padding:12px;
+      cursor:pointer;
+      font-weight:bold;
+    }
+    .accordion-header:hover { background:#F7AC4D; }
+    .accordion-content {
+      max-height:0;
+      overflow:hidden;
+      transition:max-height 0.4s ease;
+      background:#fff;
+      padding:0 15px;
+    }
+    .accordion-content.open {
+      padding:15px;
+      max-height:1000px;
+    }
+
     #answersTable {
       font-size:18px;
       border-collapse:collapse;
@@ -64,27 +84,40 @@
 </head>
 <body>
   <h2>🐮 Player Board - DO NOT Refresh Your Browser</h2>
-  <p id="roomLabel"></p>
-  <ul id="players"></ul>
-  <div id="controls">
-    <button id="startBtn">Start Round</button>
-    <button id="showAnswersBtn" disabled>Show Answers</button>
-    <p id="statusMessage"></p>
+
+  <!-- Accordion for Question (open by default) -->
+  <div class="accordion">
+    <div class="accordion-header" onclick="toggleAccordion('questionBox')">Game Room Info:</div>
+    <div id="questionBox" class="accordion-content open">
+      <p id="roomLabel"></p>
+      <ul id="players"></ul>
+      <div id="controls">
+        <button id="startBtn">Start Round</button>
+        <button id="showAnswersBtn" disabled>Show Answers</button>
+        <p id="statusMessage"></p>
+      </div>
+
+      <!-- Question + Answer input (hidden until round starts) -->
+      <div id="qaSection" style="display:none;">
+        <p id="questionPrompt"></p>
+        <textarea id="answerInput" rows="2" placeholder="Type your answer..."></textarea>
+        <button id="submitAnswerBtn">Submit Answer</button>
+        <p id="progress"></p>
+      </div>
+    </div>
   </div>
-  <div id="questionBox" style="display:none;">
-    <h3>Question</h3>
-    <p id="questionPrompt"></p>
-    <textarea id="answerInput" rows="2" placeholder="Type your answer..."></textarea>
-    <button id="submitAnswerBtn">Submit Answer</button>
-    <p id="progress"></p>
+
+  <!-- Accordion for Answers (hidden by default) -->
+  <div id="answersAccordion" class="accordion" style="display:none;">
+    <div class="accordion-header" onclick="toggleAccordion('answersTableWrapper')">Answers</div>
+    <div id="answersTableWrapper" class="accordion-content">
+      <table id="answersTable">
+        <thead><tr><th>Name</th><th>Answer</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </div>
-  <div id="answersTableWrapper" style="display:none;">
-    <h3>Answers</h3>
-    <table id="answersTable">
-      <thead><tr><th>Name</th><th>Answer</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>
+
   <script>
     const urlParams=new URLSearchParams(window.location.search);
     const roomCode=(urlParams.get("room")||"").toUpperCase();
@@ -110,8 +143,13 @@
       showBtn.disabled=true;
       statusMsg.innerText="Round in progress…";
 
-      document.getElementById("questionBox").style.display="block";
-      document.getElementById("answersTableWrapper").style.display="none";
+      // show the question/answer section
+      document.getElementById("qaSection").style.display="block";
+
+      openAccordion("questionBox");
+      closeAccordion("answersTableWrapper");
+      document.getElementById("answersAccordion").style.display="none";
+
       document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
       document.getElementById("submitAnswerBtn").disabled=false;
@@ -142,7 +180,9 @@
       document.querySelector("#answersTable tbody").innerHTML=rows
         .map(r=>`<tr><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.answer)}</td></tr>`)
         .join("");
-      document.getElementById("answersTableWrapper").style.display="block";
+      document.getElementById("answersAccordion").style.display="block";
+      openAccordion("answersTableWrapper");
+      closeAccordion("questionBox");
 
       showBtn.disabled=true;
       startBtn.disabled=false;
@@ -154,9 +194,19 @@
       div.innerText=String(str||"");
       return div.innerHTML;
     }
+
+    function toggleAccordion(id){
+      const el=document.getElementById(id);
+      el.classList.toggle("open");
+    }
+    function openAccordion(id){
+      const el=document.getElementById(id);
+      el.classList.add("open");
+    }
+    function closeAccordion(id){
+      const el=document.getElementById(id);
+      el.classList.remove("open");
+    }
   </script>
 </body>
 </html>
-
-
-
