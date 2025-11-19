@@ -5,92 +5,55 @@
   <title>Player Board — Herd Mentality Game</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      max-width: 900px;
-      margin: 30px auto;
-      background: linear-gradient(135deg, #fdfcfb, #e2d1c3);
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow:0 4px 12px rgba(0,0,0,0.1);
-    }
+    body { font-family:'Segoe UI',Arial,sans-serif; max-width:900px; margin:30px auto;
+           background:linear-gradient(135deg,#fdfcfb,#e2d1c3); padding:20px; border-radius:12px;
+           box-shadow:0 4px 12px rgba(0,0,0,0.1);}
     h2 { text-align:center; margin-bottom:20px; }
-
-    #players { list-style:none; padding:0; margin:10px 0; }
-    #players li { padding:6px 0; border-bottom:1px solid #ddd; }
     #statusMessage { font-weight:bold; margin-top:10px; text-align:center; color:#444; }
-
-    button {
-      padding:10px 18px;
-      margin:6px;
-      font-size:16px;
-      border:none;
-      border-radius:8px;
-      cursor:pointer;
-      background:#333;
-      color:#fff;
-      transition:background 0.3s ease;
-    }
+    button { padding:10px 18px; margin:6px; font-size:16px; border:none; border-radius:8px;
+             cursor:pointer; background:#333; color:#fff; transition:background 0.3s ease;}
     button:hover:enabled { background:#F7AC4D; }
     button:disabled { background:#999; cursor:not-allowed; }
-
-    .accordion {
-      margin-top:20px;
-      border-radius:8px;
-      overflow:hidden;
-      box-shadow:0 2px 6px rgba(0,0,0,0.1);
-    }
-    .accordion-header {
-      background:#333;
-      color:#fff;
-      padding:12px;
-      cursor:pointer;
-      font-weight:bold;
-    }
+    .accordion { margin-top:20px; border-radius:8px; overflow:hidden;
+                 box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+    .accordion-header { background:#333; color:#fff; padding:12px; cursor:pointer; font-weight:bold;}
     .accordion-header:hover { background:#F7AC4D; }
-    .accordion-content {
-      max-height:0;
-      overflow:hidden;
-      transition:max-height 0.4s ease;
-      background:#fff;
-      padding:0 15px;
-    }
-    .accordion-content.open {
-      padding:15px;
-      max-height:1000px;
-    }
-
-    #answersTable {
-      font-size:18px;
-      border-collapse:collapse;
-      width:100%;
-      margin-top:10px;
-    }
-    #answersTable th, #answersTable td {
-      border-bottom:1px solid #ccc;
-      padding:8px;
-      text-align:left;
-    }
-    textarea {
-      width:100%;
-      max-width:800px;
-      padding:10px;
-      border-radius:6px;
-      border:1px solid #ccc;
-      margin-bottom:10px;
-      font-size:16px;
-    }
+    .accordion-content { max-height:0; overflow:hidden; transition:max-height 0.4s ease;
+                         background:#fff; padding:0 15px;}
+    .accordion-content.open { padding:15px; max-height:1000px;}
+    #playersTable { width:100%; border-collapse:collapse; margin:15px 0; background:#fff;
+                    border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+    #playersTable th,#playersTable td { border-bottom:1px solid #ddd; padding:8px; text-align:center;}
+    #playersTable th { background:#333; color:#fff;}
+    #playersTable input[type="number"] { width:60px; padding:4px; border-radius:4px;
+                                         border:1px solid #ccc; text-align:center;}
+    #answersTable { font-size:18px; border-collapse:collapse; width:100%; margin-top:10px;}
+    #answersTable th,#answersTable td { border-bottom:1px solid #ccc; padding:8px; text-align:left;}
+    textarea { width:100%; max-width:800px; padding:10px; border-radius:6px; border:1px solid #ccc;
+               margin-bottom:10px; font-size:16px;}
   </style>
 </head>
 <body>
   <h2>🐮 Player Board - DO NOT Refresh Your Browser</h2>
 
-  <!-- Accordion for Question (open by default) -->
+  <!-- Accordion for Game Room Info -->
   <div class="accordion">
     <div class="accordion-header" onclick="toggleAccordion('questionBox')">Game Room Info:</div>
     <div id="questionBox" class="accordion-content open">
       <p id="roomLabel"></p>
-      <ul id="players"></ul>
+
+      <!-- Player scoreboard table -->
+      <table id="playersTable">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Score</th>
+            <th>Cow?</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
       <div id="controls">
         <button id="startBtn">Start Round</button>
         <button id="showAnswersBtn" disabled>Show Answers</button>
@@ -126,30 +89,41 @@
     const socket=io();
     socket.emit("joinLobby",{roomCode,name:myName});
 
-    socket.on("playerList",names=>{
-      document.getElementById("players").innerHTML=names.map(n=>`<li>${escapeHTML(n)}</li>`).join("");
+    // Render players into table with score + cow radio
+    socket.on("playerList",players=>{
+      const tbody=document.querySelector("#playersTable tbody");
+      tbody.innerHTML=players.map(p=>`
+        <tr>
+          <td>${escapeHTML(p.name)}</td>
+          <td><input type="number" value="${p.score}" 
+                     onchange="updateScore('${p.name}', this.value)"></td>
+          <td><input type="radio" name="cowHolder" ${p.has_cow ? "checked" : ""}
+                     onclick="updateCow('${p.name}')"></td>
+        </tr>
+      `).join("");
     });
+
+    function updateScore(name,score){
+      socket.emit("updateScore",{roomCode,name,score:parseInt(score,10)});
+    }
+    function updateCow(name){
+      socket.emit("updateCow",{roomCode,name});
+    }
 
     const startBtn=document.getElementById("startBtn");
     const showBtn=document.getElementById("showAnswersBtn");
     const statusMsg=document.getElementById("statusMessage");
 
-    startBtn.onclick=()=>{
-      socket.emit("startRound",{roomCode});
-    };
+    startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
 
     socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber})=>{
       startBtn.disabled=true;
       showBtn.disabled=true;
       statusMsg.innerText="Round in progress…";
-
-      // show the question/answer section
       document.getElementById("qaSection").style.display="block";
-
       openAccordion("questionBox");
       closeAccordion("answersTableWrapper");
       document.getElementById("answersAccordion").style.display="none";
-
       document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
       document.getElementById("submitAnswerBtn").disabled=false;
@@ -168,22 +142,15 @@
       document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;
     });
 
-    socket.on("allSubmitted",()=>{
-      showBtn.disabled=false;
-    });
-
-    showBtn.onclick=()=>{
-      socket.emit("showAnswers",{roomCode});
-    };
+    socket.on("allSubmitted",()=>{showBtn.disabled=false;});
+    showBtn.onclick=()=>{socket.emit("showAnswers",{roomCode});};
 
     socket.on("answersRevealed",rows=>{
       document.querySelector("#answersTable tbody").innerHTML=rows
-        .map(r=>`<tr><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.answer)}</td></tr>`)
-        .join("");
+        .map(r=>`<tr><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.answer)}</td></tr>`).join("");
       document.getElementById("answersAccordion").style.display="block";
       openAccordion("answersTableWrapper");
       closeAccordion("questionBox");
-
       showBtn.disabled=true;
       startBtn.disabled=false;
       statusMsg.innerText="Round finished. You can start a new round.";
@@ -194,19 +161,9 @@
       div.innerText=String(str||"");
       return div.innerHTML;
     }
-
-    function toggleAccordion(id){
-      const el=document.getElementById(id);
-      el.classList.toggle("open");
-    }
-    function openAccordion(id){
-      const el=document.getElementById(id);
-      el.classList.add("open");
-    }
-    function closeAccordion(id){
-      const el=document.getElementById(id);
-      el.classList.remove("open");
-    }
+    function toggleAccordion(id){document.getElementById(id).classList.toggle("open");}
+    function openAccordion(id){document.getElementById(id).classList.add("open");}
+    function closeAccordion(id){document.getElementById(id).classList.remove("open");}
   </script>
 </body>
 </html>
