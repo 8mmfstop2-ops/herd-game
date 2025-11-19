@@ -116,7 +116,7 @@
 
     startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
 
-    socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber})=>{
+    socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber,myAnswer})=>{
       startBtn.disabled=true;
       showBtn.disabled=true;
       statusMsg.innerText="Round in progress…";
@@ -126,16 +126,23 @@
       document.getElementById("answersAccordion").style.display="none";
       document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
-      document.getElementById("submitAnswerBtn").disabled=false;
-      document.getElementById("answerInput").disabled=false;
-      document.getElementById("answerInput").value="";
-      document.getElementById("submitAnswerBtn").onclick=()=>{
-        const answer=document.getElementById("answerInput").value.trim();
-        if(!answer) return;
-        socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
-        document.getElementById("submitAnswerBtn").disabled=true;
+
+      if (myAnswer) {
+        document.getElementById("answerInput").value=myAnswer;
         document.getElementById("answerInput").disabled=true;
-      };
+        document.getElementById("submitAnswerBtn").disabled=true;
+      } else {
+        document.getElementById("answerInput").value="";
+        document.getElementById("answerInput").disabled=false;
+        document.getElementById("submitAnswerBtn").disabled=false;
+        document.getElementById("submitAnswerBtn").onclick=()=>{
+          const answer=document.getElementById("answerInput").value.trim();
+          if(!answer) return;
+          socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
+          document.getElementById("submitAnswerBtn").disabled=true;
+          document.getElementById("answerInput").disabled=true;
+        };
+      }
     });
 
     socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
