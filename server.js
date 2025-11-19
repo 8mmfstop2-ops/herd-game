@@ -39,6 +39,7 @@ const pool = new Pool({
     CREATE TABLE IF NOT EXISTS questions (
       id SERIAL PRIMARY KEY,
       prompt TEXT NOT NULL,
+      sort_number INT NOT NULL,      
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
   `);
@@ -170,3 +171,4 @@ io.on("connection", (socket) => {
 
 const PORT=process.env.PORT||3000;
 server.listen(PORT,()=>console.log("Herd Mentality Game running on port "+PORT));
+
