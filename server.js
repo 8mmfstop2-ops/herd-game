@@ -63,7 +63,7 @@ const pool = new Pool({
   `);
 })();
 
-// Room management APIs
+// ---------------- Room Management APIs ----------------
 app.get("/api/rooms", async (req, res) => {
   try {
     const result = await pool.query(
@@ -102,7 +102,57 @@ app.patch("/api/rooms/:code", async (req, res) => {
   }
 });
 
-// Player join API
+// ---------------- Question (Card) Management APIs ----------------
+app.get("/api/questions", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, prompt, sort_number FROM questions ORDER BY sort_number NULLS LAST, id ASC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to load questions" });
+  }
+});
+
+app.post("/api/questions", async (req, res) => {
+  const { text } = req.body;
+  try {
+    const result = await pool.query(
+      "INSERT INTO questions (prompt) VALUES ($1) RETURNING id, prompt, sort_number",
+      [text]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to add question" });
+  }
+});
+
+app.put("/api/questions/:id", async (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+  try {
+    await pool.query("UPDATE questions SET prompt=$1 WHERE id=$2", [text, id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update question" });
+  }
+});
+
+app.delete("/api/questions/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("DELETE FROM questions WHERE id=$1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete question" });
+  }
+});
+
+// ---------------- Player Join API ----------------
 app.post("/api/player/join", async (req, res) => {
   const { name, roomCode } = req.body;
   const rc = roomCode.toUpperCase();
@@ -117,22 +167,19 @@ app.post("/api/player/join", async (req, res) => {
   res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
 });
 
-// Socket.IO game logic
+// ---------------- Socket.IO Game Logic ----------------
 io.on("connection", (socket) => {
   socket.on("joinLobby", async ({ roomCode, name }) => {
     const rc = roomCode.toUpperCase();
     socket.join(rc);
 
-    // Save player if not exists
     await pool.query(
       "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
       [name, rc]
     );
 
-    // Emit full player list with active flag
     await emitPlayerList(rc);
 
-    // Restore round state if active
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
     if (room.rows.length && room.rows[0].active_question_id) {
       const q = await pool.query("SELECT prompt FROM questions WHERE id=$1", [room.rows[0].active_question_id]);
@@ -207,15 +254,13 @@ io.on("connection", (socket) => {
   });
 });
 
-// Helper to emit full player list with active flag
+// ---------------- Helper to emit full player list ----------------
 async function emitPlayerList(roomCode) {
-  // Get all registered players from DB
   const dbPlayers = await pool.query(
     "SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC",
     [roomCode]
   );
 
-  // Find currently connected sockets in this room
   const connectedSockets = io.sockets.adapter.rooms.get(roomCode) || new Set();
   const activeNames = [];
   for (const socketId of connectedSockets) {
@@ -225,7 +270,6 @@ async function emitPlayerList(roomCode) {
     }
   }
 
-  // Merge DB list with active flag
   const merged = dbPlayers.rows.map(p => ({
     name: p.name,
     submitted: p.submitted,
@@ -235,5 +279,6 @@ async function emitPlayerList(roomCode) {
   io.to(roomCode).emit("playerList", merged);
 }
 
+// ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
