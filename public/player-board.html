@@ -5,18 +5,64 @@
   <title>Player Board — Herd Mentality Game</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; max-width:900px; margin:20px auto; }
-    #players { list-style:none; padding:0; }
-    #players li { padding:4px 0; }
-    #controls { margin:16px 0; }
-    #questionBox { margin-top:16px; }
-    #answersTable { font-size:22px; border-collapse:collapse; width:100%; }
-    #answersTable th,#answersTable td { border-bottom:1px solid #ccc; padding:8px; text-align:left; }
-    textarea { width:100%; max-width:800px; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      max-width: 900px;
+      margin: 30px auto;
+      background: linear-gradient(135deg, #fdfcfb, #e2d1c3);
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    h2 { text-align:center; margin-bottom:20px; }
+    #roomLabel { font-weight:bold; margin-bottom:12px; }
+    #players { list-style:none; padding:0; margin:10px 0; }
+    #players li { padding:6px 0; border-bottom:1px solid #ddd; }
+    #controls { margin:20px 0; text-align:center; }
+    button {
+      padding:10px 18px;
+      margin:6px;
+      font-size:16px;
+      border:none;
+      border-radius:8px;
+      cursor:pointer;
+      background:#333;
+      color:#fff;
+      transition:background 0.3s ease;
+    }
+    button:hover:enabled { background:#F7AC4D; }
+    button:disabled { background:#999; cursor:not-allowed; }
+    #questionBox, #answersTableWrapper {
+      margin-top:20px;
+      padding:15px;
+      background:#fff;
+      border-radius:8px;
+      box-shadow:0 2px 6px rgba(0,0,0,0.1);
+    }
+    #answersTable {
+      font-size:18px;
+      border-collapse:collapse;
+      width:100%;
+      margin-top:10px;
+    }
+    #answersTable th, #answersTable td {
+      border-bottom:1px solid #ccc;
+      padding:8px;
+      text-align:left;
+    }
+    textarea {
+      width:100%;
+      max-width:800px;
+      padding:10px;
+      border-radius:6px;
+      border:1px solid #ccc;
+      margin-bottom:10px;
+      font-size:16px;
+    }
   </style>
 </head>
 <body>
-  <h2>Player Board</h2>
+  <h2>🐮 Player Board</h2>
   <p id="roomLabel"></p>
   <ul id="players"></ul>
   <div id="controls">
@@ -32,7 +78,10 @@
   </div>
   <div id="answersTableWrapper" style="display:none;">
     <h3>Answers</h3>
-    <table id="answersTable"><thead><tr><th>Name</th><th>Answer</th></tr></thead><tbody></tbody></table>
+    <table id="answersTable">
+      <thead><tr><th>Name</th><th>Answer</th></tr></thead>
+      <tbody></tbody>
+    </table>
   </div>
   <script>
     const urlParams=new URLSearchParams(window.location.search);
@@ -41,24 +90,63 @@
     document.getElementById("roomLabel").innerText=`Room: ${roomCode} — You: ${myName}`;
     const socket=io();
     socket.emit("joinLobby",{roomCode,name:myName});
-    socket.on("playerList",names=>{document.getElementById("players").innerHTML=names.map(n=>`<li>${escapeHTML(n)}</li>`).join("");});
-    document.getElementById("startBtn").onclick=()=>{socket.emit("startRound",{roomCode});};
+
+    socket.on("playerList",names=>{
+      document.getElementById("players").innerHTML=names.map(n=>`<li>${escapeHTML(n)}</li>`).join("");
+    });
+
+    const startBtn=document.getElementById("startBtn");
+    const showBtn=document.getElementById("showAnswersBtn");
+
+    startBtn.onclick=()=>{
+      socket.emit("startRound",{roomCode});
+      startBtn.disabled=true; // disable immediately
+    };
+
     socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber})=>{
       document.getElementById("questionBox").style.display="block";
       document.getElementById("answersTableWrapper").style.display="none";
-      document.getElementById("showAnswersBtn").disabled=true;
+      showBtn.disabled=true;
       document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
       document.getElementById("submitAnswerBtn").disabled=false;
       document.getElementById("answerInput").disabled=false;
       document.getElementById("answerInput").value="";
-      document.getElementById("submitAnswerBtn").onclick=()=>{const answer=document.getElementById("answerInput").value.trim();if(!answer)return;socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});document.getElementById("submitAnswerBtn").disabled=true;document.getElementById("answerInput").disabled=true;};
+      document.getElementById("submitAnswerBtn").onclick=()=>{
+        const answer=document.getElementById("answerInput").value.trim();
+        if(!answer) return;
+        socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
+        document.getElementById("submitAnswerBtn").disabled=true;
+        document.getElementById("answerInput").disabled=true;
+      };
     });
-    socket.on("submissionProgress",({submittedCount,totalPlayers})=>{document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;});
-    socket.on("allSubmitted",()=>{document.getElementById("showAnswersBtn").disabled=false;});
-    document.getElementById("showAnswersBtn").onclick=()=>{socket.emit("showAnswers",{roomCode});};
-    socket.on("answersRevealed",rows=>{document.querySelector("#answersTable tbody").innerHTML=rows.map(r=>`<tr><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.answer)}</td></tr>`).join("");document.getElementById("answersTableWrapper").style.display="block";});
-    function escapeHTML(str){const div=document.createElement('div');div.innerText=String(str||"");return div.innerHTML;}
+
+    socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
+      document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;
+    });
+
+    socket.on("allSubmitted",()=>{
+      showBtn.disabled=false; // enable Show Answers
+    });
+
+    showBtn.onclick=()=>{
+      socket.emit("showAnswers",{roomCode});
+      showBtn.disabled=true; // disable after pressed
+    };
+
+    socket.on("answersRevealed",rows=>{
+      document.querySelector("#answersTable tbody").innerHTML=rows
+        .map(r=>`<tr><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.answer)}</td></tr>`)
+        .join("");
+      document.getElementById("answersTableWrapper").style.display="block";
+      startBtn.disabled=false; // re-enable Start Round after answers shown
+    });
+
+    function escapeHTML(str){
+      const div=document.createElement('div');
+      div.innerText=String(str||"");
+      return div.innerHTML;
+    }
   </script>
 </body>
 </html>
