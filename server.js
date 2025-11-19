@@ -39,6 +39,7 @@ const pool = new Pool({
     CREATE TABLE IF NOT EXISTS questions (
       id SERIAL PRIMARY KEY,
       prompt TEXT NOT NULL,
+      sort_number INT,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
   `);
@@ -91,14 +92,24 @@ app.patch("/api/rooms/:code", async (req, res) => {
 
 // Questions API
 app.get("/api/questions", async (_req, res) => {
-  const r = await pool.query("SELECT id, prompt FROM questions ORDER BY id DESC");
+  const r = await pool.query("SELECT id, prompt, sort_number FROM questions ORDER BY id DESC");
   res.json(r.rows);
 });
 app.post("/api/questions", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "Prompt required" });
-  const r = await pool.query("INSERT INTO questions (prompt) VALUES ($1) RETURNING id,prompt", [text.trim()]);
-  res.json(r.rows[0]);
+
+  // Insert question
+  const r = await pool.query(
+    "INSERT INTO questions (prompt) VALUES ($1) RETURNING id, prompt",
+    [text.trim()]
+  );
+  const newId = r.rows[0].id;
+
+  // Update sort_number to match id
+  await pool.query("UPDATE questions SET sort_number = $1 WHERE id = $1", [newId]);
+
+  res.json({ id: newId, prompt: r.rows[0].prompt, sort_number: newId });
 });
 
 // Player join
@@ -168,6 +179,6 @@ io.on("connection", (socket) => {
   socket.on("disconnect",()=>{for(const [rc,st] of stateByRoom.entries()){if(st.sockets.has(socket.id)){st.sockets.delete(socket.id);io.to(rc).emit("playerList",Array.from(st.sockets.values()));if(st.sockets.size===0)stateByRoom.delete(rc);}}});
 });
 
-// ✅ Port fixed: defaults to 10000 locally, uses Render’s PORT in production
+// ✅ Port safe for local and Render
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
