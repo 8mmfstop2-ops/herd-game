@@ -14,17 +14,6 @@
       border-radius: 12px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
-    #reconnectBanner {
-      display:none;
-      background:#4CAF50;
-      color:#fff;
-      text-align:center;
-      padding:10px;
-      font-weight:bold;
-      border-radius:6px;
-      margin-bottom:10px;
-      transition: all 0.5s ease;
-    }
     h2 { text-align:center; margin-bottom:20px; }
     #roomLabel { font-weight:bold; margin-bottom:12px; }
     #players { list-style:none; padding:0; margin:10px 0; }
@@ -65,19 +54,15 @@
     textarea {
       width:100%;
       max-width:800px;
-      padding:6px;
+      padding:10px;
       border-radius:6px;
       border:1px solid #ccc;
       margin-bottom:10px;
       font-size:16px;
-      height:50px; /* smaller height */
     }
   </style>
 </head>
 <body>
-  <!-- Reconnect banner -->
-  <div id="reconnectBanner">Connected to game server 🔌</div>
-
   <h2>🐮 Player Board - DO NOT Refresh Your Browser</h2>
   <p id="roomLabel"></p>
   <ul id="players"></ul>
@@ -108,27 +93,6 @@
     const socket=io();
     socket.emit("joinLobby",{roomCode,name:myName});
 
-    const reconnectBanner=document.getElementById("reconnectBanner");
-
-    // Banner events
-    socket.on("connect",()=>{
-      reconnectBanner.style.display="block";
-      reconnectBanner.style.background="#4CAF50";
-      reconnectBanner.innerText="Connected to game server 🔌";
-      setTimeout(()=>reconnectBanner.style.display="none",3000);
-    });
-    socket.on("reconnect",()=>{
-      reconnectBanner.style.display="block";
-      reconnectBanner.style.background="#4CAF50";
-      reconnectBanner.innerText="You have rejoined the round successfully 🚪";
-      setTimeout(()=>reconnectBanner.style.display="none",4000);
-    });
-    socket.on("disconnect",()=>{
-      reconnectBanner.style.display="block";
-      reconnectBanner.style.background="#f44336";
-      reconnectBanner.innerText="⚠️ Disconnected… trying to reconnect";
-    });
-
     socket.on("playerList",names=>{
       document.getElementById("players").innerHTML=names.map(n=>`<li>${escapeHTML(n)}</li>`).join("");
     });
@@ -141,7 +105,7 @@
       socket.emit("startRound",{roomCode});
     };
 
-    socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber,alreadySubmitted})=>{
+    socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber})=>{
       startBtn.disabled=true;
       showBtn.disabled=true;
       statusMsg.innerText="Round in progress…";
@@ -150,23 +114,16 @@
       document.getElementById("answersTableWrapper").style.display="none";
       document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
-
-      if (alreadySubmitted) {
+      document.getElementById("submitAnswerBtn").disabled=false;
+      document.getElementById("answerInput").disabled=false;
+      document.getElementById("answerInput").value="";
+      document.getElementById("submitAnswerBtn").onclick=()=>{
+        const answer=document.getElementById("answerInput").value.trim();
+        if(!answer) return;
+        socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
         document.getElementById("submitAnswerBtn").disabled=true;
         document.getElementById("answerInput").disabled=true;
-        statusMsg.innerText="You already submitted your answer.";
-      } else {
-        document.getElementById("submitAnswerBtn").disabled=false;
-        document.getElementById("answerInput").disabled=false;
-        document.getElementById("answerInput").value="";
-        document.getElementById("submitAnswerBtn").onclick=()=>{
-          const answer=document.getElementById("answerInput").value.trim();
-          if(!answer) return;
-          socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
-          document.getElementById("submitAnswerBtn").disabled=true;
-          document.getElementById("answerInput").disabled=true;
-        };
-      }
+      };
     });
 
     socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
@@ -200,3 +157,6 @@
   </script>
 </body>
 </html>
+
+
+
