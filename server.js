@@ -82,7 +82,7 @@ io.on("connection", (socket) => {
     // Update player list
     io.to(rc).emit("playerList", Array.from(st.sockets.values()));
 
-    // 🔥 If a round is active, send current round state to reconnecting player
+    // If a round is active, send current round state to reconnecting player
     if (st.activeQuestionId) {
       (async () => {
         const q = await pool.query("SELECT prompt FROM questions WHERE id=$1", [st.activeQuestionId]);
@@ -144,3 +144,4 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
