@@ -167,6 +167,25 @@ app.post("/api/player/join", async (req, res) => {
   res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
 });
 
+
+// ---------------- Admin Login API ----------------
+app.post("/api/admin/login", (req, res) => {
+  const { username, password } = req.body;
+
+  // Compare against environment variables
+  if (
+    username === process.env.ADMIN_USER &&
+    password === process.env.ADMIN_PASS
+  ) {
+    // Success: you could set a session/cookie here if needed
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ error: "Invalid credentials" });
+  }
+});
+
+
+
 // ---------------- Socket.IO Game Logic ----------------
 io.on("connection", (socket) => {
   socket.on("joinLobby", async ({ roomCode, name }) => {
@@ -282,3 +301,4 @@ async function emitPlayerList(roomCode) {
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
