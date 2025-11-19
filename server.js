@@ -95,6 +95,7 @@ app.get("/api/questions", async (_req, res) => {
   const r = await pool.query("SELECT id, prompt, sort_number FROM questions ORDER BY id DESC");
   res.json(r.rows);
 });
+
 app.post("/api/questions", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "Prompt required" });
@@ -111,6 +112,39 @@ app.post("/api/questions", async (req, res) => {
 
   res.json({ id: newId, prompt: r.rows[0].prompt, sort_number: newId });
 });
+
+//  Update a question
+app.put("/api/questions/:id", async (req, res) => {
+  const { text } = req.body;
+  const id = parseInt(req.params.id, 10);
+  if (!text) return res.status(400).json({ error: "Prompt required" });
+
+  try {
+    const r = await pool.query(
+      "UPDATE questions SET prompt=$1 WHERE id=$2 RETURNING id, prompt, sort_number",
+      [text.trim(), id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: "Question not found" });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update question" });
+  }
+});
+
+// Delete a question
+app.delete("/api/questions/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const r = await pool.query("DELETE FROM questions WHERE id=$1 RETURNING id", [id]);
+    if (r.rowCount === 0) return res.status(404).json({ error: "Question not found" });
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete question" });
+  }
+});
+
 
 // Player join
 app.post("/api/player/join", async (req, res) => {
