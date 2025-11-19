@@ -39,7 +39,6 @@ const pool = new Pool({
     CREATE TABLE IF NOT EXISTS questions (
       id SERIAL PRIMARY KEY,
       prompt TEXT NOT NULL,
-      sort_number INT NOT NULL,      
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
   `);
@@ -169,6 +168,6 @@ io.on("connection", (socket) => {
   socket.on("disconnect",()=>{for(const [rc,st] of stateByRoom.entries()){if(st.sockets.has(socket.id)){st.sockets.delete(socket.id);io.to(rc).emit("playerList",Array.from(st.sockets.values()));if(st.sockets.size===0)stateByRoom.delete(rc);}}});
 });
 
-const PORT=process.env.PORT||3000;
-server.listen(PORT,()=>console.log("Herd Mentality Game running on port "+PORT));
-
+// ✅ Port fixed: defaults to 10000 locally, uses Render’s PORT in production
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
