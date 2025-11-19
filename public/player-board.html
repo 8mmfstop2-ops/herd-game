@@ -39,6 +39,36 @@
       width:100%; max-width:800px; padding:10px; border-radius:6px;
       border:1px solid #ccc; margin-bottom:10px; font-size:16px;
     }
+    /* Toggle switch style */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 28px;
+      margin-right: 8px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 28px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    input:checked + .slider { background-color: #4CAF50; }
+    input:checked + .slider:before { transform: translateX(22px); }
   </style>
 </head>
 <body>
@@ -64,6 +94,15 @@
         <button id="startBtn">Start Round</button>
         <button id="showAnswersBtn" disabled>Show Answers</button>
         <p id="statusMessage"></p>
+      </div>
+
+      <!-- Override toggle -->
+      <div>
+        <label class="switch">
+          <input type="checkbox" id="overrideSwitch">
+          <span class="slider"></span>
+        </label>
+        <span>Override: allow answer submission</span>
       </div>
 
       <!-- Question + Answer input (hidden until round starts) -->
@@ -98,18 +137,19 @@
     const startBtn=document.getElementById("startBtn");
     const showBtn=document.getElementById("showAnswersBtn");
     const statusMsg=document.getElementById("statusMessage");
+    const overrideSwitch=document.getElementById("overrideSwitch");
+    const submitBtn=document.getElementById("submitAnswerBtn");
+    const answerInput=document.getElementById("answerInput");
 
-    // Track all players who ever joined
-    let allPlayers = new Set();
+    let currentQuestionId=null;
 
+    // Render full player list with ghost icons
     socket.on("playerList", players => {
-      players.forEach(p => allPlayers.add(p.name));
-      document.querySelector("#playersTable tbody").innerHTML = Array.from(allPlayers)
-        .map(name => {
-          const active = players.find(p => p.name === name);
-          const ghost = active ? "" : "👻";
-          const submitted = active ? (active.submitted ? "✅ Submitted" : "⌛ Waiting") : "";
-          return `<tr><td>${ghost}</td><td>${escapeHTML(name)}</td><td>${submitted}</td></tr>`;
+      document.querySelector("#playersTable tbody").innerHTML = players
+        .map(p => {
+          const ghost = p.active ? "" : "👻";
+          const submitted = p.active ? (p.submitted ? "✅ Submitted" : "⌛ Waiting") : "";
+          return `<tr><td>${ghost}</td><td>${escapeHTML(p.name)}</td><td>${submitted}</td></tr>`;
         })
         .join("");
     });
@@ -117,6 +157,7 @@
     startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
 
     socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber,myAnswer})=>{
+      currentQuestionId=questionId;
       startBtn.disabled=true;
       showBtn.disabled=true;
       statusMsg.innerText="Round in progress…";
@@ -127,22 +168,17 @@
       document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
 
-      if (myAnswer) {
-        document.getElementById("answerInput").value=myAnswer;
-        document.getElementById("answerInput").disabled=true;
-        document.getElementById("submitAnswerBtn").disabled=true;
-      } else {
-        document.getElementById("answerInput").value="";
-        document.getElementById("answerInput").disabled=false;
-        document.getElementById("submitAnswerBtn").disabled=false;
-        document.getElementById("submitAnswerBtn").onclick=()=>{
-          const answer=document.getElementById("answerInput").value.trim();
-          if(!answer) return;
-          socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
-          document.getElementById("submitAnswerBtn").disabled=true;
-          document.getElementById("answerInput").disabled=true;
-        };
-      }
+      updateSubmitState(myAnswer);
+
+      submitBtn.onclick=()=>{
+        const answer=answerInput.value.trim();
+        if(!answer) return;
+        socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
+        if(!overrideSwitch.checked){
+          submitBtn.disabled=true;
+          answerInput.disabled=true;
+        }
+      };
     });
 
     socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
@@ -157,20 +193,4 @@
         .map(r=>`<tr><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.answer)}</td></tr>`).join("");
       document.getElementById("answersAccordion").style.display="block";
       openAccordion("answersTableWrapper");
-      closeAccordion("questionBox");
-      showBtn.disabled=true;
-      startBtn.disabled=false;
-      statusMsg.innerText="Round finished. You can start a new round.";
-    });
-
-    function escapeHTML(str){
-      const div=document.createElement('div');
-      div.innerText=String(str||"");
-      return div.innerHTML;
-    }
-    function toggleAccordion(id){document.getElementById(id).classList.toggle("open");}
-    function openAccordion(id){document.getElementById(id).classList.add("open");}
-    function closeAccordion(id){document.getElementById(id).classList.remove("open");}
-  </script>
-</body>
-</html>
+      closeAccordion("questionBox
