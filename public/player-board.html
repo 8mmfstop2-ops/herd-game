@@ -54,9 +54,9 @@
     <div id="questionBox" class="accordion-content open">
       <p id="roomLabel"></p>
 
-      <!-- Players table -->
+      <!-- Players table with ghost column -->
       <table id="playersTable">
-        <thead><tr><th>Player</th><th>Status</th></tr></thead>
+        <thead><tr><th></th><th>Player</th><th>Status</th></tr></thead>
         <tbody></tbody>
       </table>
 
@@ -99,13 +99,22 @@
     const showBtn=document.getElementById("showAnswersBtn");
     const statusMsg=document.getElementById("statusMessage");
 
-    startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
+    // Track all players who ever joined
+    let allPlayers = new Set();
 
     socket.on("playerList", players => {
-      document.querySelector("#playersTable tbody").innerHTML = players
-        .map(p => `<tr><td>${escapeHTML(p.name)}</td><td>${p.submitted ? "✅ Submitted" : "⌛ Waiting"}</td></tr>`)
+      players.forEach(p => allPlayers.add(p.name));
+      document.querySelector("#playersTable tbody").innerHTML = Array.from(allPlayers)
+        .map(name => {
+          const active = players.find(p => p.name === name);
+          const ghost = active ? "" : "👻";
+          const submitted = active ? (active.submitted ? "✅ Submitted" : "⌛ Waiting") : "";
+          return `<tr><td>${ghost}</td><td>${escapeHTML(name)}</td><td>${submitted}</td></tr>`;
+        })
         .join("");
     });
+
+    startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
 
     socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber})=>{
       startBtn.disabled=true;
