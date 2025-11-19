@@ -179,6 +179,7 @@ io.on("connection", (socket) => {
   socket.on("disconnect",()=>{for(const [rc,st] of stateByRoom.entries()){if(st.sockets.has(socket.id)){st.sockets.delete(socket.id);io.to(rc).emit("playerList",Array.from(st.sockets.values()));if(st.sockets.size===0)stateByRoom.delete(rc);}}});
 });
 
-// ✅ Port safe for local and Render
+//  Port safe for local and Render
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
