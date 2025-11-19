@@ -63,6 +63,45 @@ const pool = new Pool({
   `);
 })();
 
+// Room management APIs
+app.get("/api/rooms", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT code, status, created_at FROM rooms ORDER BY created_at DESC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to load rooms" });
+  }
+});
+
+app.post("/api/rooms", async (req, res) => {
+  const { code, status } = req.body;
+  try {
+    await pool.query(
+      "INSERT INTO rooms (code, status) VALUES ($1,$2) ON CONFLICT (code) DO NOTHING",
+      [code.toUpperCase(), status]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to create room" });
+  }
+});
+
+app.patch("/api/rooms/:code", async (req, res) => {
+  const { code } = req.params;
+  const { status } = req.body;
+  try {
+    await pool.query("UPDATE rooms SET status=$1 WHERE code=$2", [status, code.toUpperCase()]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update room" });
+  }
+});
+
 // Player join API
 app.post("/api/player/join", async (req, res) => {
   const { name, roomCode } = req.body;
@@ -84,14 +123,16 @@ io.on("connection", (socket) => {
     const rc = roomCode.toUpperCase();
     socket.join(rc);
 
+    // Save player if not exists
     await pool.query(
       "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
       [name, rc]
     );
 
-    const players = await pool.query("SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC", [rc]);
-    io.to(rc).emit("playerList", players.rows);
+    // Emit full player list with active flag
+    await emitPlayerList(rc);
 
+    // Restore round state if active
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
     if (room.rows.length && room.rows[0].active_question_id) {
       const q = await pool.query("SELECT prompt FROM questions WHERE id=$1", [room.rows[0].active_question_id]);
@@ -102,7 +143,7 @@ io.on("connection", (socket) => {
       socket.emit("roundStarted", {
         questionId: room.rows[0].active_question_id,
         prompt: q.rows[0].prompt,
-        playerCount: players.rows.length,
+        playerCount: (await pool.query("SELECT COUNT(*) FROM players WHERE room_code=$1", [rc])).rows[0].count,
         roundNumber: room.rows[0].current_round,
         myAnswer: ans.rows.length ? ans.rows[0].answer : null
       });
@@ -119,14 +160,13 @@ io.on("connection", (socket) => {
     await pool.query("UPDATE rooms SET current_round = current_round+1, active_question_id=$1 WHERE code=$2", [qid, rc]);
     await pool.query("UPDATE players SET submitted=false WHERE room_code=$1", [rc]);
 
-    const players = await pool.query("SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC", [rc]);
-    io.to(rc).emit("playerList", players.rows);
+    await emitPlayerList(rc);
 
     const roundNum = (await pool.query("SELECT current_round FROM rooms WHERE code=$1", [rc])).rows[0].current_round;
     io.to(rc).emit("roundStarted", {
       questionId: qid,
       prompt: q.rows[0].prompt,
-      playerCount: players.rows.length,
+      playerCount: (await pool.query("SELECT COUNT(*) FROM players WHERE room_code=$1", [rc])).rows[0].count,
       roundNumber: roundNum,
       myAnswer: null
     });
@@ -143,13 +183,13 @@ io.on("connection", (socket) => {
     );
     await pool.query("UPDATE players SET submitted=true WHERE room_code=$1 AND LOWER(name)=LOWER($2)", [rc, name]);
 
-    const players = await pool.query("SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC", [rc]);
-    io.to(rc).emit("playerList", players.rows);
+    await emitPlayerList(rc);
 
-    const submittedCount = players.rows.filter(p => p.submitted).length;
-    io.to(rc).emit("submissionProgress", { submittedCount, totalPlayers: players.rows.length });
+    const submittedCount = (await pool.query("SELECT COUNT(*) FROM players WHERE room_code=$1 AND submitted=true", [rc])).rows[0].count;
+    const totalPlayers = (await pool.query("SELECT COUNT(*) FROM players WHERE room_code=$1", [rc])).rows[0].count;
+    io.to(rc).emit("submissionProgress", { submittedCount, totalPlayers });
 
-    if (submittedCount === players.rows.length) {
+    if (submittedCount == totalPlayers) {
       io.to(rc).emit("allSubmitted");
     }
   });
@@ -166,6 +206,34 @@ io.on("connection", (socket) => {
     io.to(rc).emit("answersRevealed", rr.rows);
   });
 });
+
+// Helper to emit full player list with active flag
+async function emitPlayerList(roomCode) {
+  // Get all registered players from DB
+  const dbPlayers = await pool.query(
+    "SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC",
+    [roomCode]
+  );
+
+  // Find currently connected sockets in this room
+  const connectedSockets = io.sockets.adapter.rooms.get(roomCode) || new Set();
+  const activeNames = [];
+  for (const socketId of connectedSockets) {
+    const s = io.sockets.sockets.get(socketId);
+    if (s && s.handshake && s.handshake.query && s.handshake.query.name) {
+      activeNames.push(s.handshake.query.name);
+    }
+  }
+
+  // Merge DB list with active flag
+  const merged = dbPlayers.rows.map(p => ({
+    name: p.name,
+    submitted: p.submitted,
+    active: activeNames.includes(p.name)
+  }));
+
+  io.to(roomCode).emit("playerList", merged);
+}
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
