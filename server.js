@@ -32,7 +32,10 @@ const pool = new Pool({
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       room_code TEXT REFERENCES rooms(code) ON DELETE CASCADE,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      score INT NOT NULL DEFAULT 0,
+      has_cow BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE(name, room_code)
     );
   `);
   await pool.query(`
@@ -56,82 +59,12 @@ const pool = new Pool({
   `);
 })();
 
-// Admin login
-app.post("/api/admin/login", (req, res) => {
-  const { username, password } = req.body;
-  const ADMIN_USER = process.env.ADMIN_USER || "game-admin";
-  const ADMIN_PASS = process.env.ADMIN_PASS || "Rainbow6GoldenEye";
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
-    return res.json({ success: true });
-  }
-  res.status(401).json({ error: "Invalid credentials" });
-});
-
-// Rooms API
-app.get("/api/rooms", async (_req, res) => {
-  const r = await pool.query("SELECT code, status, created_at FROM rooms ORDER BY id DESC");
-  res.json(r.rows);
-});
-app.post("/api/rooms", async (req, res) => {
-  const { code, status } = req.body;
-  if (!code) return res.status(400).json({ error: "Room code required" });
-  try {
-    await pool.query("INSERT INTO rooms (code, status) VALUES ($1,$2)", [code.toUpperCase(), status || "open"]);
-    res.json({ success: true });
-  } catch {
-    res.status(400).json({ error: "Room already exists" });
-  }
-});
-app.patch("/api/rooms/:code", async (req, res) => {
-  const { status } = req.body;
-  const code = req.params.code.toUpperCase();
-  const r = await pool.query("UPDATE rooms SET status=$1 WHERE code=$2 RETURNING code,status", [status, code]);
-  if (r.rowCount === 0) return res.status(404).json({ error: "Room not found" });
-  res.json(r.rows[0]);
-});
-
-// Questions API
-app.get("/api/questions", async (_req, res) => {
-  const r = await pool.query("SELECT id, prompt, sort_number FROM questions ORDER BY id DESC");
-  res.json(r.rows);
-});
-app.post("/api/questions", async (req, res) => {
-  const { text } = req.body;
-  if (!text) return res.status(400).json({ error: "Prompt required" });
-
-  // Insert question
-  const r = await pool.query(
-    "INSERT INTO questions (prompt) VALUES ($1) RETURNING id, prompt",
-    [text.trim()]
-  );
-  const newId = r.rows[0].id;
-
-  // Update sort_number to match id
-  await pool.query("UPDATE questions SET sort_number = $1 WHERE id = $1", [newId]);
-
-  res.json({ id: newId, prompt: r.rows[0].prompt, sort_number: newId });
-});
-
-// Player join
-app.post("/api/player/join", async (req, res) => {
-  const { name, roomCode } = req.body;
-  const rc = roomCode.toUpperCase();
-  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
-  if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
-  if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
-  const existing = await pool.query("SELECT id FROM players WHERE name=$1 AND room_code=$2", [name, rc]);
-  if (existing.rows.length === 0) {
-    await pool.query("INSERT INTO players (name, room_code) VALUES ($1,$2)", [name, rc]);
-  }
-  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
-});
-
 // In-memory state
 const stateByRoom = new Map();
 function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;}
 
 io.on("connection", (socket) => {
-  socket.on("joinLobby", ({ roomCode, name }) => {
+  socket.on("joinLobby", async ({ roomCode, name }) => {
     const rc = roomCode.toUpperCase();
     socket.join(rc);
     if (!stateByRoom.has(rc)) {
@@ -139,7 +72,31 @@ io.on("connection", (socket) => {
     }
     const st=stateByRoom.get(rc);
     st.sockets.set(socket.id,name);
-    io.to(rc).emit("playerList", Array.from(st.sockets.values()));
+
+    // Ensure player exists in DB
+    await pool.query(`
+      INSERT INTO players (name, room_code, score, has_cow)
+      VALUES ($1,$2,0,false)
+      ON CONFLICT (name, room_code) DO NOTHING
+    `,[name,rc]);
+
+    const players = await pool.query("SELECT name, score, has_cow FROM players WHERE room_code=$1 ORDER BY name ASC",[rc]);
+    io.to(rc).emit("playerList", players.rows);
+  });
+
+  socket.on("updateScore", async ({ roomCode, name, score }) => {
+    const rc=roomCode.toUpperCase();
+    await pool.query("UPDATE players SET score=$1 WHERE room_code=$2 AND name=$3",[score,rc,name]);
+    const players = await pool.query("SELECT name, score, has_cow FROM players WHERE room_code=$1 ORDER BY name ASC",[rc]);
+    io.to(rc).emit("playerList", players.rows);
+  });
+
+  socket.on("updateCow", async ({ roomCode, name }) => {
+    const rc=roomCode.toUpperCase();
+    await pool.query("UPDATE players SET has_cow=false WHERE room_code=$1",[rc]);
+    await pool.query("UPDATE players SET has_cow=true WHERE room_code=$1 AND name=$2",[rc,name]);
+    const players = await pool.query("SELECT name, score, has_cow FROM players WHERE room_code=$1 ORDER BY name ASC",[rc]);
+    io.to(rc).emit("playerList", players.rows);
   });
 
   socket.on("startRound", async ({ roomCode }) => {
@@ -176,10 +133,8 @@ io.on("connection", (socket) => {
     io.to(rc).emit("answersRevealed",rr.rows);
   });
 
-  socket.on("disconnect",()=>{for(const [rc,st] of stateByRoom.entries()){if(st.sockets.has(socket.id)){st.sockets.delete(socket.id);io.to(rc).emit("playerList",Array.from(st.sockets.values()));if(st.sockets.size===0)stateByRoom.delete(rc);}}});
+  socket.on("disconnect",()=>{for(const [rc,st] of stateByRoom.entries()){if(st.sockets.has(socket.id)){st.sockets.delete(socket.id);const players = pool.query("SELECT name, score, has_cow FROM players WHERE room_code=$1 ORDER BY name ASC",[rc]);players.then(r=>io.to(rc).emit("playerList",r.rows));if(st.sockets.size===0)stateByRoom.delete(rc);}}});
 });
 
-//  Port safe for local and Render
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
-
