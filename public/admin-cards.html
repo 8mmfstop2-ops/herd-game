@@ -14,35 +14,32 @@
     th { background:#eee; }
     .btn { background:#333; color:#fff; padding:8px 12px; border-radius:6px; text-decoration:none; display:inline-block; margin-bottom:16px; }
     .btn:hover { background:#F7AC4D; }
-    .action-btn { font-size:14px; padding:4px 8px; margin-right:6px; border:none; border-radius:4px; cursor:pointer; }
+    .action-btn { font-size:14px; padding:4px 8px; border:none; border-radius:4px; cursor:pointer; }
     .edit-btn { background:#2e7d32; color:#fff; }
     .edit-btn:hover { background:#388e3c; }
     .delete-btn { background:#c62828; color:#fff; }
     .delete-btn:hover { background:#e53935; }
+    .actions { display:flex; gap:8px; } /* ensures buttons are side by side */
     .bottom-bar { margin-top:30px; text-align:center; }
-	.header {
-	  display: flex;
-	  align-items: center;   /* vertically center logo and text */
-	  gap: 12px;             /* small horizontal space between logo and heading */
-	  margin-bottom: 20px;   /* space below the header bar */
-	}
-
-	.logo {
-	  max-width: 100px;       /* smaller logo size so it fits nicely */
-	  height: auto;
-	  display: block;
-	}
-
+    .header {
+      display: flex;
+      align-items: center;   /* vertically center logo and text */
+      gap: 12px;             /* small horizontal space between logo and heading */
+      margin-bottom: 20px;   /* space below the header bar */
+    }
+    .logo {
+      max-width: 100px;       /* smaller logo size so it fits nicely */
+      height: auto;
+      display: block;
+    }
   </style>
 </head>
 <body>
-  <!-- Logo at the top (not linked) -->
-  
-   <div class="header">
+  <!-- Logo at the top -->
+  <div class="header">
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
     <h1>Card Management</h1>
-   
-    </div>
+  </div>
 
   <a class="btn" href="/admin-dashboard.html">← Back to Dashboard</a>
 
@@ -72,8 +69,10 @@
           <td>${escapeHTML(q.prompt)}</td>
           <td>${q.sort_number || q.id}</td>
           <td>
-            <button class="action-btn edit-btn" onclick="editQuestion(${q.id}, '${escapeHTML(q.prompt)}')">Edit</button>
-            <button class="action-btn delete-btn" onclick="deleteQuestion(${q.id})">Delete</button>
+            <div class="actions">
+              <button class="action-btn edit-btn" onclick="editQuestion(${q.id}, '${escapeHTML(q.prompt)}')">Edit</button>
+              <button class="action-btn delete-btn" onclick="deleteQuestion(${q.id})">Delete</button>
+            </div>
           </td>
         </tr>`
       ).join('');
