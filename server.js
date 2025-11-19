@@ -84,7 +84,6 @@ io.on("connection", (socket) => {
     io.to(rc).emit("playerList", players.rows);
   });
 
-  // Update score
   socket.on("updateScore", async ({ roomCode, name, score }) => {
     const rc=roomCode.toUpperCase();
     await pool.query("UPDATE players SET score=$1 WHERE room_code=$2 AND name=$3",[score,rc,name]);
@@ -92,7 +91,6 @@ io.on("connection", (socket) => {
     io.to(rc).emit("playerList", players.rows);
   });
 
-  // Update cow holder (only one true per room)
   socket.on("updateCow", async ({ roomCode, name }) => {
     const rc=roomCode.toUpperCase();
     await pool.query("UPDATE players SET has_cow=false WHERE room_code=$1",[rc]);
@@ -135,7 +133,7 @@ io.on("connection", (socket) => {
     io.to(rc).emit("answersRevealed",rr.rows);
   });
 
-  socket.on("disconnect",()=>{for(const [rc,st] of stateByRoom.entries()){if(st.sockets.has(socket.id)){st.sockets.delete(socket.id);pool.query("SELECT name, score, has_cow FROM players WHERE room_code=$1 ORDER BY name ASC",[rc]).then(r=>io.to(rc).emit("playerList",r.rows));if(st.sockets.size===0)stateByRoom.delete(rc);}}});
+  socket.on("disconnect",()=>{for(const [rc,st] of stateByRoom.entries()){if(st.sockets.has(socket.id)){st.sockets.delete(socket.id);const players = pool.query("SELECT name, score, has_cow FROM players WHERE room_code=$1 ORDER BY name ASC",[rc]);players.then(r=>io.to(rc).emit("playerList",r.rows));if(st.sockets.size===0)stateByRoom.delete(rc);}}});
 });
 
 const PORT = process.env.PORT || 10000;
