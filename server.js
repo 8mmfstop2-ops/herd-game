@@ -1,412 +1,341 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Player Dashboard — Udderly the Same</title>
-  <script src="/socket.io/socket.io.js"></script>
-  <style>
-    body {
-      font-family:'Segoe UI',Arial,sans-serif;
-      max-width:900px;
-      margin:30px auto;
-      background:linear-gradient(135deg,#fdfcfb,#e2d1c3);
-      padding:20px;
-      border-radius:12px;
-      box-shadow:0 4px 12px rgba(0,0,0,0.1);
+// v1.1.2
+
+const express = require("express"); 
+const http = require("http");
+const path = require("path");
+const bodyParser = require("body-parser");
+const { Pool } = require("pg");
+const { Server } = require("socket.io");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(bodyParser.json());
+app.use(express.static(path.join(__dirname, "public")));
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+// ---------------- Initialize tables ----------------
+(async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS rooms (
+    id SERIAL PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    current_round INT DEFAULT 0,
+    active_question_id INT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS players (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    room_code TEXT REFERENCES rooms(code) ON DELETE CASCADE,
+    submitted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS players_name_room_unique
+    ON players (LOWER(name), room_code);`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS questions (
+    id SERIAL PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    sort_number INT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS answers (
+    id SERIAL PRIMARY KEY,
+    room_code TEXT NOT NULL,
+    player_name TEXT NOT NULL,
+    question_id INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    round_number INT NOT NULL,
+    answer TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
+
+  // New persistent scoring table
+  await pool.query(`CREATE TABLE IF NOT EXISTS scores (
+    id SERIAL PRIMARY KEY,
+    room_code TEXT NOT NULL,
+    player_name TEXT NOT NULL,
+    round_number INT NOT NULL,
+    points INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE (room_code, player_name, round_number)
+  );`);
+})();
+
+// ---------------- Admin Login API ----------------
+app.post("/api/admin/login", (req, res) => {
+  const { username, password } = req.body;
+  const ADMIN_USER = process.env.ADMIN_USER || "game-admin";
+  const ADMIN_PASS = process.env.ADMIN_PASS || "Rainbow6GoldenEye";
+  if (username === ADMIN_USER && password === ADMIN_PASS) {
+    return res.json({ success: true });
+  }
+  res.status(401).json({ error: "Invalid credentials" });
+});
+
+// ---------------- Room Management APIs ----------------
+app.get("/api/rooms", async (_req, res) => {
+  const r = await pool.query("SELECT code, status, created_at FROM rooms ORDER BY id DESC");
+  res.json(r.rows);
+});
+app.post("/api/rooms", async (req, res) => {
+  const { code, status } = req.body;
+  if (!code) return res.status(400).json({ error: "Room code required" });
+  try {
+    await pool.query("INSERT INTO rooms (code, status) VALUES ($1,$2)", [code.toUpperCase(), status || "open"]);
+    res.json({ success: true });
+  } catch {
+    res.status(400).json({ error: "Room already exists" });
+  }
+});
+app.patch("/api/rooms/:code", async (req, res) => {
+  const { status } = req.body;
+  const code = req.params.code.toUpperCase();
+  const r = await pool.query("UPDATE rooms SET status=$1 WHERE code=$2 RETURNING code,status", [status, code]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Room not found" });
+  res.json(r.rows[0]);
+});
+
+// ---------------- Question Management APIs ----------------
+app.get("/api/questions", async (_req, res) => {
+  const r = await pool.query("SELECT id, prompt, sort_number FROM questions ORDER BY id DESC");
+  res.json(r.rows);
+});
+app.post("/api/questions", async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: "Prompt required" });
+  const r = await pool.query("INSERT INTO questions (prompt) VALUES ($1) RETURNING id, prompt", [text.trim()]);
+  const newId = r.rows[0].id;
+  await pool.query("UPDATE questions SET sort_number = $1 WHERE id = $1", [newId]);
+  res.json({ id: newId, prompt: r.rows[0].prompt, sort_number: newId });
+});
+app.put("/api/questions/:id", async (req, res) => {
+  const { text } = req.body;
+  const id = parseInt(req.params.id, 10);
+  if (!text) return res.status(400).json({ error: "Prompt required" });
+  const r = await pool.query("UPDATE questions SET prompt=$1 WHERE id=$2 RETURNING id, prompt, sort_number", [text.trim(), id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Question not found" });
+  res.json(r.rows[0]);
+});
+app.delete("/api/questions/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = await pool.query("DELETE FROM questions WHERE id=$1 RETURNING id", [id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Question not found" });
+  res.json({ success: true });
+});
+
+
+// ---------------- Player Join API ----------------
+app.post("/api/player/join", async (req, res) => {
+  const { name, roomCode } = req.body;
+  const rc = roomCode.toUpperCase();
+  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
+  if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
+  if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
+
+  await pool.query(
+    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
+    [name, rc]
+  );
+
+  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
+});
+
+
+// ---------------- Helpers ----------------
+function getActiveNames(roomCode) {
+  const connected = io.sockets.adapter.rooms.get(roomCode) || new Set();
+  const activeNames = [];
+  for (const socketId of connected) {
+    const s = io.sockets.sockets.get(socketId);
+    if (s && s.data && s.data.name) {
+      activeNames.push(s.data.name);
     }
-    .header { display:flex; align-items:center; gap:12px; margin-bottom:20px;}
-    .logo { max-width:100px; height:auto; display:block;}
-    h2 { margin:0;}
-    #statusMessage { font-weight:bold; margin-top:10px; text-align:center; color:#444;}
-    button {
-      padding:10px 18px; margin:6px; font-size:16px; border:none; border-radius:8px;
-      cursor:pointer; background:#333; color:#fff; transition:background 0.3s ease;
-    }
-    button:hover:enabled { background:#F7AC4D;}
-    button:disabled { background:#999; cursor:not-allowed;}
-    .accordion { margin-top:20px; border-radius:8px; overflow:hidden; box-shadow:0 2px 6px rgba(0,0,0,0.1);}
-    .accordion-header { background:#333; color:#fff; padding:12px; cursor:pointer; font-weight:bold;}
-    .accordion-header:hover { background:#F7AC4D;}
-    .accordion-content { max-height:0; overflow:hidden; transition:max-height 0.4s ease; background:#fff; padding:0 15px;}
-    .accordion-content.open { padding:15px; max-height:1000px;}
-    #answersTable, #playersTable, #scoreTable {
-      font-size:18px; border-collapse:collapse; width:100%; margin-top:10px;
-    }
-    #answersTable th, #answersTable td,
-    #playersTable th, #playersTable td,
-    #scoreTable th, #scoreTable td {
-      border-bottom:1px solid #ccc; padding:8px;
-    }
-    #answersTable th, #answersTable td { text-align:left; }
+  }
+  return activeNames;
+}
 
-    textarea {
-      width:100%; max-width:800px; padding:10px; border-radius:6px;
-      border:1px solid #ccc; margin-bottom:10px; font-size:16px;
-    }
+async function getActiveStats(roomCode) {
+  const dbPlayers = await pool.query("SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC", [roomCode]);
+  const activeNames = getActiveNames(roomCode);
+  const merged = dbPlayers.rows.map(p => ({
+    name: p.name,
+    submitted: p.submitted,
+    active: activeNames.includes(p.name)
+  }));
+  const activeCount = merged.filter(p => p.active).length;
+  const submittedActiveCount = merged.filter(p => p.active && p.submitted).length;
+  return { merged, activeCount, submittedActiveCount };
+}
 
-    /* Pill-style switch */
-    .switch { display:block; margin-bottom:12px; }
-    .switch label { display:flex; align-items:center; gap:10px; cursor:pointer; }
-    .switch input { display:none; }
-    .slider {
-      position: relative;
-      width: 60px;
-      height: 28px;
-      background-color: #ccc;
-      border-radius: 28px;
-      transition: background-color 0.3s;
-    }
-    .slider::before {
-      content: "";
-      position: absolute;
-      width: 24px;
-      height: 24px;
-      left: 2px;
-      top: 2px;
-      background-color: white;
-      border-radius: 50%;
-      transition: transform 0.3s;
-    }
-    .switch input:checked + .slider { background-color: #2e7d32; }
-    .switch input:checked + .slider::before { transform: translateX(32px); }
+async function getScoreboard(roomCode) {
+  const r = await pool.query(
+    `SELECT player_name,
+            COALESCE(SUM(points),0) AS total,
+            COALESCE(json_object_agg(round_number, points) FILTER (WHERE points IS NOT NULL), '{}') AS rounds
+     FROM scores
+     WHERE room_code=$1
+     GROUP BY player_name
+     ORDER BY player_name`,
+    [roomCode]
+  );
+  return r.rows; // [{player_name, total, rounds:{round:points,...}}]
+}
 
-    /* Top status styling */
-    #topStatus { font-weight:bold; color:#444; margin-left:auto; }
-    .roomHeader { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-    .small { font-size: 12px; color: #666; }
+async function emitPlayerList(roomCode) {
+  const { merged, activeCount, submittedActiveCount } = await getActiveStats(roomCode);
+  io.to(roomCode).emit("playerList", {
+    players: merged,
+    activeCount,
+    submittedCount: submittedActiveCount
+  });
+  // Keep progress synced on join/leave/submit
+  io.to(roomCode).emit("submissionProgress", {
+    submittedCount: submittedActiveCount,
+    totalPlayers: activeCount
+  });
+}
 
-    /* Scoreboard styling */
-    #scoreTable th, #scoreTable td { padding: 6px; }
-    #scoreTable th:first-child, #scoreTable td:first-child {
-      text-align: left;
-      padding-left: 10px;
-    }
-    #scoreTable th:nth-child(2), #scoreTable td:nth-child(2) {
-      text-align: center;
-      width: 60px;
-    }
-    #scoreTable th:nth-child(n+3), #scoreTable td.roundCell {
-      text-align: center;
-      width: 35px;
-    }
-    .scoreSelect { width: 100%; text-align: center; }
+async function emitScoreboard(roomCode) {
+  const scoreboard = await getScoreboard(roomCode);
+  io.to(roomCode).emit("scoreboardUpdated", scoreboard);
+}
 
-    /* Answer toggle labels */
-    .pointLabel { margin-left: 8px; font-weight: bold; }
-    .pointLabel.green { color: #2e7d32; }
-    .pointLabel.blue { color: #1976d2; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
-    <h2>🐮 Player Dashboard <span class="small">(v 1.1.3b)</span></h2>
-  </div>
+// ---------------- Socket.IO Game Logic ----------------
+io.on("connection", (socket) => {
+  socket.on("joinLobby", async ({ roomCode, name }) => {
+    const rc = roomCode.toUpperCase();
+    socket.data.name = name;
+    socket.data.roomCode = rc;
+    socket.join(rc);
 
-  <!-- Game Room Info -->
-  <div class="accordion">
-    <div class="accordion-header" onclick="toggleAccordion('questionBox')">Game Room Info</div>
-    <div id="questionBox" class="accordion-content open">
-      <div class="roomHeader">
-        <p id="roomLabel"></p>
-        <span id="topStatus"></span>
-      </div>
-      <table id="playersTable">
-        <thead><tr><th>Player</th><th>Out</th><th>Status</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div id="controls">
-        <button id="startBtn">Start Round</button>
-        <button id="showAnswersBtn" disabled>Show Answers</button>
-        <p id="statusMessage"></p>
-      </div>
-      <div id="qaSection" style="display:none;">
-        <p id="questionPrompt"></p>
-        <textarea id="answerInput" rows="2" placeholder="Type your answer..."></textarea>
-        <button id="submitAnswerBtn">Submit Answer</button>
-        <p id="progress"></p>
-      </div>
-    </div>
-  </div>
+    await pool.query(
+      "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
+      [name, rc]
+    );
 
-  <!-- Control Switches -->
-  <div class="accordion">
-    <div class="accordion-header" onclick="toggleAccordion('controlsBox')">Control switches</div>
-    <div id="controlsBox" class="accordion-content">
-      <div class="switch"><label><input type="checkbox" id="toggleStart" checked><span class="slider"></span>Enable Start Round</label></div>
-      <div class="switch"><label><input type="checkbox" id="toggleShow" checked><span class="slider"></span>Enable Show Answers</label></div>
-      <div class="switch"><label><input type="checkbox" id="toggleSubmit" checked><span class="slider"></span>Enable Submit Answer</label></div>
-    </div>
-  </div>
+    await emitPlayerList(rc);
+    await emitScoreboard(rc);
 
-  <!-- Answers -->
-  <div id="answersAccordion" class="accordion" style="display:none;">
-    <div class="accordion-header" onclick="toggleAccordion('answersTableWrapper')">Answers</div>
-    <div id="answersTableWrapper" class="accordion-content">
-      <table id="answersTable">
-        <thead><tr><th>Point</th><th>Name</th><th>Answer</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
+    const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
+    if (room.rows.length && room.rows[0].active_question_id) {
+      const q = await pool.query("SELECT prompt FROM questions WHERE id=$1", [room.rows[0].active_question_id]);
+      const ans = await pool.query(
+        "SELECT answer FROM answers WHERE room_code=$1 AND LOWER(player_name)=LOWER($2) AND question_id=$3 AND round_number=$4",
+        [rc, name, room.rows[0].active_question_id, room.rows[0].current_round]
+      );
+      const { activeCount, submittedActiveCount } = await getActiveStats(rc);
 
-  <!-- Scoreboard -->
-  <div class="accordion">
-    <div class="accordion-header" onclick="toggleAccordion('scoreboardBox')">Scoreboard</div>
-    <div id="scoreboardBox" class="accordion-content">
-      <table id="scoreTable">
-        <thead><tr><th>Player</th><th>Total</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-
-  <script>
-    const urlParams=new URLSearchParams(window.location.search);
-    const roomCode=(urlParams.get("room")||"").toUpperCase();
-    const myName=urlParams.get("name")||"";
-    document.getElementById("roomLabel").innerText=`Room: ${roomCode} — You: ${myName}`;
-    const socket=io();
-    socket.emit("joinLobby",{roomCode,name:myName});
-
-    const startBtn=document.getElementById("startBtn");
-    const showBtn=document.getElementById("showAnswersBtn");
-    const statusMsg=document.getElementById("statusMessage");
-    const submitBtn=document.getElementById("submitAnswerBtn");
-    const inputBox=document.getElementById("answerInput");
-
-let allPlayers = new Set();
-let answersShown = false;
-let currentRound = 0;
-let scoreboard = []; // server-sourced [{player_name, total, rounds:{round:points}}]
-
-
-    // Switch overrides
-    document.getElementById("toggleStart").addEventListener("change", e => {
-      startBtn.disabled = !e.target.checked;
-    });
-    document.getElementById("toggleShow").addEventListener("change", e => {
-      showBtn.disabled = !e.target.checked;
-    });
-    document.getElementById("toggleSubmit").addEventListener("change", e => {
-      const on = e.target.checked;
-      submitBtn.disabled = !on;
-      inputBox.disabled = !on;
-    });
-
-    // Player list updates
-    socket.on("playerList", data => {
-      const players = data.players || data;
-      const activeCount = data.activeCount || players.filter(p => p.active).length;
-      const submittedCount = data.submittedCount || players.filter(p => p.active && p.submitted).length;
-
-      players.forEach(p => allPlayers.add(p.name));
-      document.querySelector("#playersTable tbody").innerHTML = Array.from(allPlayers)
-        .map(name => {
-          const player = players.find(p => p.name === name);
-          const ghost = player && player.active ? "" : "👻";
-          const submitted = player ? (player.submitted ? "✅ Submitted" : "⌛ Waiting") : "";
-          return `<tr><td>${escapeHTML(name)}</td><td>${ghost}</td><td>${submitted}</td></tr>`;
-        })
-        .join("");
-
-      statusMsg.innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
-      document.getElementById("topStatus").innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
-
-      if (document.getElementById("qaSection").style.display === "block") {
-        document.getElementById("progress").innerText = `Submitted: ${submittedCount} / ${activeCount}`;
-      }
-    });
-
-    socket.on("submissionProgress", ({submittedCount,totalPlayers}) => {
-      document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;
-      if (totalPlayers > 0 && submittedCount === totalPlayers) {
-        showBtn.disabled = false;
-        document.getElementById("toggleShow").checked = true;
-      } else {
-        showBtn.disabled = true;
-        document.getElementById("toggleShow").checked = false;
-      }
-    });
-
-    startBtn.onclick = () => {
-      socket.emit("startRound",{roomCode});
-    };
-
-    socket.on("roundStarted", ({questionId,prompt,playerCount,roundNumber,myAnswer}) => {
-      currentRound = roundNumber;
-      answersShown = false;
-
-      startBtn.disabled=true;
-      document.getElementById("toggleStart").checked = false;
-
-      showBtn.disabled=true;
-      document.getElementById("toggleShow").checked = false;
-
-      statusMsg.innerText="Round in progress…";
-      document.getElementById("qaSection").style.display="block";
-      openAccordion("questionBox");
-      closeAccordion("answersTableWrapper");
-      document.getElementById("answersAccordion").style.display="none";
-      document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
-      document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
-
-      if (answersShown || myAnswer) {
-        submitBtn.disabled=true;
-        inputBox.disabled=true;
-        document.getElementById("toggleSubmit").checked = false;
-        inputBox.value = myAnswer || "";
-      } else {
-        submitBtn.disabled=false;
-        inputBox.disabled=false;
-        document.getElementById("toggleSubmit").checked = true;
-        inputBox.value = "";
-        submitBtn.onclick=()=>{
-          const answer=inputBox.value.trim();
-          if(!answer) return;
-          socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
-          submitBtn.disabled=true;
-          inputBox.disabled=true;
-          document.getElementById("toggleSubmit").checked = false;
-        };
-      }
-    });
-
-    socket.on("allSubmitted", () => {
-      showBtn.disabled=false;
-      document.getElementById("toggleShow").checked = true;
-    });
-
-    showBtn.onclick = () => {
-      socket.emit("showAnswers",{roomCode});
-      answersShown = true;
-    };
-
-    socket.on("answersRevealed", rows => {
-      const roundMap = toRoundMap(scoreboard, currentRound);
-      document.querySelector("#answersTable tbody").innerHTML = rows
-        .map(r => {
-          const name = escapeHTML(r.name);
-          const ans = escapeHTML(r.answer);
-          const checked = roundMap[name] === 1 ? "checked" : "";
-          const labelText = roundMap[name] === 1 ? "+1" : "0";
-          const labelClass = roundMap[name] === 1 ? "pointLabel green" : "pointLabel blue";
-          return `
-            <tr>
-              <td>
-                <label class="switch">
-                  <input type="checkbox" class="scoreToggle" data-player="${name}" data-round="${currentRound}" ${checked}>
-                  <span class="slider"></span>
-                  <span class="${labelClass}">${labelText}</span>
-                </label>
-              </td>
-              <td>${name}</td>
-              <td>${ans}</td>
-            </tr>
-          `;
-        })
-        .join("");
-
-      document.getElementById("answersAccordion").style.display="block";
-      openAccordion("answersTableWrapper");
-      closeAccordion("questionBox");
-      showBtn.disabled=true;
-      document.getElementById("toggleShow").checked = false;
-      startBtn.disabled=false;
-      document.getElementById("toggleStart").checked = true;
-      statusMsg.innerText="Round finished. You can start a new round.";
-    });
-
-    // Persist point toggles
-    document.addEventListener("change", e => {
-      if (e.target.classList.contains("scoreToggle")) {
-        const player = e.target.dataset.player;
-        const round = parseInt(e.target.dataset.round, 10);
-        const points = e.target.checked ? 1 : 0;
-        socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
-
-        const labelSpan = e.target.closest("label").querySelector(".pointLabel");
-        if (labelSpan) {
-          labelSpan.textContent = points === 1 ? "+1" : "0";
-          labelSpan.className = points === 1 ? "pointLabel green" : "pointLabel blue";
-        }
-      }
-    });
-
-    socket.on("scoreboardUpdated", data => {
-      scoreboard = data || [];
-      renderScoreboard(scoreboard);
-      if (document.getElementById("answersAccordion").style.display === "block") {
-        const roundMap = toRoundMap(scoreboard, currentRound);
-        document.querySelectorAll(".scoreToggle").forEach(cb => {
-          const player = cb.dataset.player;
-          cb.checked = roundMap[player] === 1;
-          const labelSpan = cb.closest("label").querySelector(".pointLabel");
-          if (labelSpan) {
-            labelSpan.textContent = cb.checked ? "+1" : "0";
-            labelSpan.className = cb.checked ? "pointLabel green" : "pointLabel blue";
-          }
-        });
-      }
-    });
-
-    // Render scoreboard with dropdowns
-    function renderScoreboard(data) {
-      const allRounds = data.flatMap(d => Object.keys(d.rounds || {}).map(n => parseInt(n, 10)));
-      const maxRound = Math.max(0, ...allRounds);
-
-      const header = "<tr><th>Player</th><th>Total</th>" +
-        Array.from({length: maxRound}, (_, i) => `<th>#${i+1}</th>`).join("") +
-        "</tr>";
-      document.querySelector("#scoreTable thead").innerHTML = header;
-
-      const rows = data.map(d => {
-        const total = d.total || 0;
-        const roundCells = Array.from({length: maxRound}, (_, i) => {
-          const rnum = i + 1;
-          const val = (d.rounds && d.rounds[rnum]) != null ? d.rounds[rnum] : 0;
-          return `
-            <td class="roundCell">
-              <select data-player="${escapeHTML(d.player_name)}" data-round="${rnum}" class="scoreSelect">
-                <option value="0" ${val == 0 ? "selected" : ""}>0</option>
-                <option value="1" ${val == 1 ? "selected" : ""}>1</option>
-              </select>
-            </td>
-          `;
-        }).join("");
-        return `<tr><td>${escapeHTML(d.player_name)}</td><td>${total}</td>${roundCells}</tr>`;
-      }).join("");
-
-      document.querySelector("#scoreTable tbody").innerHTML = rows;
-
-      // Auto-persist dropdown changes
-      document.querySelectorAll(".scoreSelect").forEach(select => {
-        select.addEventListener("change", e => {
-          const player = e.target.dataset.player;
-          const round = parseInt(e.target.dataset.round, 10);
-          const points = parseInt(e.target.value, 10);
-          socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
-        });
+      socket.emit("roundStarted", {
+        questionId: room.rows[0].active_question_id,
+        prompt: q.rows[0].prompt,
+        playerCount: activeCount,
+        roundNumber: room.rows[0].current_round,
+        myAnswer: ans.rows.length ? ans.rows[0].answer : null
       });
-    }
 
-    function toRoundMap(data, round) {
-      const map = {};
-      (data || []).forEach(d => {
-        const val = (d.rounds && d.rounds[round]) != null ? d.rounds[round] : 0;
-        map[escapeHTML(d.player_name)] = parseInt(val, 10) === 1 ? 1 : 0;
+      io.to(rc).emit("submissionProgress", {
+        submittedCount: submittedActiveCount,
+        totalPlayers: activeCount
       });
-      return map;
-    }
 
-    function escapeHTML(str){
-      const div=document.createElement('div');
-      div.innerText=String(str||"");
-      return div.innerHTML;
+      if (activeCount > 0 && submittedActiveCount === activeCount) {
+        io.to(rc).emit("allSubmitted");
+      }
     }
-    function toggleAccordion(id){document.getElementById(id).classList.toggle("open");}
-    function openAccordion(id){document.getElementById(id).classList.add("open");}
-    function closeAccordion(id){document.getElementById(id).classList.remove("open");}
-  </script>
-</body>
-</html>
+  });
+
+  socket.on("startRound", async ({ roomCode }) => {
+    const rc = roomCode.toUpperCase();
+    const qr = await pool.query("SELECT id FROM questions ORDER BY sort_number ASC");
+    if (qr.rows.length === 0) return;
+    const qid = qr.rows[Math.floor(Math.random() * qr.rows.length)].id;
+    const q = await pool.query("SELECT prompt FROM questions WHERE id=$1", [qid]);
+
+    await pool.query("UPDATE rooms SET current_round = current_round+1, active_question_id=$1 WHERE code=$2", [qid, rc]);
+    await pool.query("UPDATE players SET submitted=false WHERE room_code=$1", [rc]);
+
+    await emitPlayerList(rc);
+
+    const roundNum = (await pool.query("SELECT current_round FROM rooms WHERE code=$1", [rc])).rows[0].current_round;
+    const { activeCount } = await getActiveStats(rc);
+    io.to(rc).emit("roundStarted", {
+      questionId: qid,
+      prompt: q.rows[0].prompt,
+      playerCount: activeCount,
+      roundNumber: roundNum,
+      myAnswer: null
+    });
+  });
+
+  socket.on("submitAnswer", async ({ roomCode, name, questionId, answer }) => {
+    const rc = roomCode.toUpperCase();
+    const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
+    if (!room.rows.length || room.rows[0].active_question_id !== questionId) return;
+
+    await pool.query(
+      "INSERT INTO answers (room_code, player_name, question_id, round_number, answer) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+      [rc, name, questionId, room.rows[0].current_round, answer]
+    );
+    await pool.query("UPDATE players SET submitted=true WHERE room_code=$1 AND LOWER(name)=LOWER($2)", [rc, name]);
+
+    await emitPlayerList(rc);
+
+    const { activeCount, submittedActiveCount } = await getActiveStats(rc);
+    io.to(rc).emit("submissionProgress", {
+      submittedCount: submittedActiveCount,
+      totalPlayers: activeCount
+    });
+
+    if (activeCount > 0 && submittedActiveCount === activeCount) {
+      io.to(rc).emit("allSubmitted");
+    }
+  });
+
+  socket.on("showAnswers", async ({ roomCode }) => {
+    const rc = roomCode.toUpperCase();
+    const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
+    if (!room.rows.length || !room.rows[0].active_question_id) return;
+
+    const rr = await pool.query(
+      "SELECT player_name AS name, answer FROM answers WHERE room_code=$1 AND question_id=$2 AND round_number=$3 ORDER BY name ASC",
+      [rc, room.rows[0].active_question_id, room.rows[0].current_round]
+    );
+    io.to(rc).emit("answersRevealed", rr.rows);
+
+    // Also emit latest scoreboard so toggles can reflect prior points for this round
+    await emitScoreboard(rc);
+  });
+
+  // Award or update points for a player and round
+  socket.on("awardPoint", async ({ roomCode, playerName, roundNumber, points }) => {
+    const rc = roomCode.toUpperCase();
+    await pool.query(
+      `INSERT INTO scores (room_code, player_name, round_number, points)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (room_code, player_name, round_number)
+       DO UPDATE SET points=$4`,
+      [rc, playerName, roundNumber, points]
+    );
+    await emitScoreboard(rc);
+  });
+
+  socket.on("disconnect", async () => {
+    const r = socket.data?.roomCode;
+    if (r) {
+      await emitPlayerList(r);
+    }
+  });
+});
+
+// ---------------- Start Server ----------------
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
