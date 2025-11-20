@@ -49,7 +49,11 @@
 <body>
   <div class="header">
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
-    <h2>🐮 Player Dashboard</h2>
+  
+<h2>
+  🐮 Player Dashboard <span style="font-size:10px; font-weight:normal; margin-left:8px;"> (v 1.0.1) </span>
+</h2>
+	
   </div>
 
   <div class="accordion">
@@ -100,9 +104,13 @@
     const statusMsg=document.getElementById("statusMessage");
 
     let allPlayers = new Set();
-    let answersShown = false; //  track if answers were revealed
+    let answersShown = false;
 
-    socket.on("playerList", players => {
+    socket.on("playerList", data => {
+      const players = data.players || data; // support both formats
+      const activeCount = data.activeCount || players.filter(p => p.active).length;
+      const submittedCount = data.submittedCount || players.filter(p => p.active && p.submitted).length;
+
       players.forEach(p => allPlayers.add(p.name));
       document.querySelector("#playersTable tbody").innerHTML = Array.from(allPlayers)
         .map(name => {
@@ -112,6 +120,9 @@
           return `<tr><td>${escapeHTML(name)}</td><td>${ghost}</td><td>${submitted}</td></tr>`;
         })
         .join("");
+
+      // Update status message with live counts
+      statusMsg.innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
     });
 
     startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
@@ -127,14 +138,15 @@
       document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
 
-      //  If answers already shown, disable submission immediately
-      if (answersShown) {
+      //  Disable if answers already shown OR if you already submitted
+      if (answersShown || myAnswer) {
         document.getElementById("submitAnswerBtn").disabled=true;
         document.getElementById("answerInput").disabled=true;
+        document.getElementById("answerInput").value = myAnswer || "";
       } else {
         document.getElementById("submitAnswerBtn").disabled=false;
         document.getElementById("answerInput").disabled=false;
-        document.getElementById("answerInput").value = myAnswer || "";
+        document.getElementById("answerInput").value = "";
         document.getElementById("submitAnswerBtn").onclick=()=>{
           const answer=document.getElementById("answerInput").value.trim();
           if(!answer) return;
@@ -152,7 +164,7 @@
     socket.on("allSubmitted",()=>{showBtn.disabled=false;});
     showBtn.onclick=()=>{
       socket.emit("showAnswers",{roomCode});
-      answersShown = true; //  mark answers as revealed
+      answersShown = true;
     };
 
     socket.on("answersRevealed",rows=>{
@@ -171,9 +183,16 @@
       div.innerText=String(str||"");
       return div.innerHTML;
     }
-    function toggleAccordion(id){document.getElementById(id).classList.toggle("open");}
-    function openAccordion(id){document.getElementById(id).classList.add("open");}
-    function closeAccordion(id){document.getElementById(id).classList.remove("open");}
+
+    function toggleAccordion(id){
+      document.getElementById(id).classList.toggle("open");
+    }
+    function openAccordion(id){
+      document.getElementById(id).classList.add("open");
+    }
+    function closeAccordion(id){
+      document.getElementById(id).classList.remove("open");
+    }
   </script>
 </body>
 </html>
