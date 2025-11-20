@@ -35,6 +35,11 @@
     #answersTable th,#answersTable td, #playersTable th,#playersTable td {
       border-bottom:1px solid #ccc; padding:8px; text-align:left;
     }
+    /* 👻 column wide enough */
+    #playersTable th:nth-child(2), #playersTable td:nth-child(2) {
+      width: 60px;
+      text-align: center;
+    }
     textarea {
       width:100%; max-width:800px; padding:10px; border-radius:6px;
       border:1px solid #ccc; margin-bottom:10px; font-size:16px;
@@ -42,21 +47,18 @@
   </style>
 </head>
 <body>
-  <!-- Header with logo and title -->
   <div class="header">
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
-    <h2>🐮 Player Board - DO NOT Refresh Your Browser</h2>
+    <h2>🐮 Player Dashboard</h2>
   </div>
 
-  <!-- Accordion for Game Room Info -->
   <div class="accordion">
     <div class="accordion-header" onclick="toggleAccordion('questionBox')">Game Room Info:</div>
     <div id="questionBox" class="accordion-content open">
       <p id="roomLabel"></p>
 
-      <!-- Players table with ghost column -->
       <table id="playersTable">
-        <thead><tr><th></th><th>Player</th><th>Status</th></tr></thead>
+        <thead><tr><th>Player</th><th>👻</th><th>Status</th></tr></thead>
         <tbody></tbody>
       </table>
 
@@ -66,7 +68,6 @@
         <p id="statusMessage"></p>
       </div>
 
-      <!-- Question + Answer input (hidden until round starts) -->
       <div id="qaSection" style="display:none;">
         <p id="questionPrompt"></p>
         <textarea id="answerInput" rows="2" placeholder="Type your answer..."></textarea>
@@ -76,7 +77,6 @@
     </div>
   </div>
 
-  <!-- Accordion for Answers (hidden by default) -->
   <div id="answersAccordion" class="accordion" style="display:none;">
     <div class="accordion-header" onclick="toggleAccordion('answersTableWrapper')">Answers</div>
     <div id="answersTableWrapper" class="accordion-content">
@@ -99,24 +99,24 @@
     const showBtn=document.getElementById("showAnswersBtn");
     const statusMsg=document.getElementById("statusMessage");
 
-    // Track all players who ever joined
     let allPlayers = new Set();
+    let answersShown = false; //  track if answers were revealed
 
     socket.on("playerList", players => {
       players.forEach(p => allPlayers.add(p.name));
       document.querySelector("#playersTable tbody").innerHTML = Array.from(allPlayers)
         .map(name => {
-          const active = players.find(p => p.name === name);
-          const ghost = active ? "" : "👻";
-          const submitted = active ? (active.submitted ? "✅ Submitted" : "⌛ Waiting") : "";
-          return `<tr><td>${ghost}</td><td>${escapeHTML(name)}</td><td>${submitted}</td></tr>`;
+          const player = players.find(p => p.name === name);
+          const ghost = player && player.active ? "" : "👻";
+          const submitted = player ? (player.submitted ? "✅ Submitted" : "⌛ Waiting") : "";
+          return `<tr><td>${escapeHTML(name)}</td><td>${ghost}</td><td>${submitted}</td></tr>`;
         })
         .join("");
     });
 
     startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
 
-    socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber})=>{
+    socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber,myAnswer})=>{
       startBtn.disabled=true;
       showBtn.disabled=true;
       statusMsg.innerText="Round in progress…";
@@ -126,16 +126,23 @@
       document.getElementById("answersAccordion").style.display="none";
       document.getElementById("questionPrompt").innerText=`Round ${roundNumber}: ${prompt}`;
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
-      document.getElementById("submitAnswerBtn").disabled=false;
-      document.getElementById("answerInput").disabled=false;
-      document.getElementById("answerInput").value="";
-      document.getElementById("submitAnswerBtn").onclick=()=>{
-        const answer=document.getElementById("answerInput").value.trim();
-        if(!answer) return;
-        socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
+
+      //  If answers already shown, disable submission immediately
+      if (answersShown) {
         document.getElementById("submitAnswerBtn").disabled=true;
         document.getElementById("answerInput").disabled=true;
-      };
+      } else {
+        document.getElementById("submitAnswerBtn").disabled=false;
+        document.getElementById("answerInput").disabled=false;
+        document.getElementById("answerInput").value = myAnswer || "";
+        document.getElementById("submitAnswerBtn").onclick=()=>{
+          const answer=document.getElementById("answerInput").value.trim();
+          if(!answer) return;
+          socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
+          document.getElementById("submitAnswerBtn").disabled=true;
+          document.getElementById("answerInput").disabled=true;
+        };
+      }
     });
 
     socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
@@ -143,7 +150,10 @@
     });
 
     socket.on("allSubmitted",()=>{showBtn.disabled=false;});
-    showBtn.onclick=()=>{socket.emit("showAnswers",{roomCode});};
+    showBtn.onclick=()=>{
+      socket.emit("showAnswers",{roomCode});
+      answersShown = true; //  mark answers as revealed
+    };
 
     socket.on("answersRevealed",rows=>{
       document.querySelector("#answersTable tbody").innerHTML=rows
