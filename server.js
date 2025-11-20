@@ -79,16 +79,24 @@ app.get("/api/rooms", async (_req, res) => {
   const r = await pool.query("SELECT code, status, created_at FROM rooms ORDER BY id DESC");
   res.json(r.rows);
 });
-app.post("/api/rooms", async (req, res) => {
-  const { code, status } = req.body;
-  if (!code) return res.status(400).json({ error: "Room code required" });
-  try {
-    await pool.query("INSERT INTO rooms (code, status) VALUES ($1,$2)", [code.toUpperCase(), status || "open"]);
-    res.json({ success: true });
-  } catch {
-    res.status(400).json({ error: "Room already exists" });
-  }
+
+app.post("/api/player/join", async (req, res) => {
+  const { name, roomCode } = req.body;
+  const rc = roomCode.toUpperCase();
+  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
+  if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
+  if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
+
+  // handle mix case names part 1
+  await pool.query(
+    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
+    [name, rc]
+  );
+
+  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
 });
+
+
 app.patch("/api/rooms/:code", async (req, res) => {
   const { status } = req.body;
   const code = req.params.code.toUpperCase();
@@ -152,11 +160,11 @@ io.on("connection", (socket) => {
     const rc = roomCode.toUpperCase();
     socket.join(rc);
 
+    // handle mixed case nmames part 2
     await pool.query(
-      "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT ON CONSTRAINT players_name_room_unique DO NOTHING",
+      "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
       [name, rc]
     );
-
     await emitPlayerList(rc);
 
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
@@ -261,3 +269,4 @@ async function emitPlayerList(roomCode) {
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
