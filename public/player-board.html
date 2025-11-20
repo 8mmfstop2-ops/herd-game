@@ -4,7 +4,8 @@
   <meta charset="utf-8" />
   <title>Player Dashboard — Udderly the Same</title>
   <script src="/socket.io/socket.io.js"></script>
-  <style>
+
+<style>
     body {
       font-family:'Segoe UI',Arial,sans-serif;
       max-width:900px;
@@ -44,7 +45,7 @@
       border:1px solid #ccc; margin-bottom:10px; font-size:16px;
     }
 
-    /* Pill-style switch */
+    /* Pill-style switch (default for override controls) */
     .switch { display:block; margin-bottom:12px; }
     .switch label { display:flex; align-items:center; gap:10px; cursor:pointer; }
     .switch input { display:none; }
@@ -95,7 +96,34 @@
     .pointLabel { margin-left: 8px; font-weight: bold; }
     .pointLabel.green { color: #2e7d32; }
     .pointLabel.blue { color: #1976d2; }
-  </style>
+
+    /* Wider pill + tint ONLY for point toggles in Answers table */
+    #answersTable .slider {
+      width: 80px;
+      height: 32px;
+      background-color: #bbdefb;   /* light blue tint when OFF */
+      border-radius: 32px;
+      transition: background-color 0.3s;
+    }
+    #answersTable .slider::before {
+      width: 28px;
+      height: 28px;
+      left: 2px;
+      top: 2px;
+      background-color: white;
+      border-radius: 50%;
+      transition: transform 0.3s, background-color 0.3s;
+    }
+    #answersTable .switch input:checked + .slider {
+      background-color: #a5d6a7;   /* light green tint when ON */
+    }
+    #answersTable .switch input:checked + .slider::before {
+      transform: translateX(48px);
+    }
+</style>
+
+
+
 </head>
 <body>
   <div class="header">
