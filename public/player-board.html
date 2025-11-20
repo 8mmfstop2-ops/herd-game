@@ -29,10 +29,10 @@
     .accordion-header:hover { background:#F7AC4D;}
     .accordion-content { max-height:0; overflow:hidden; transition:max-height 0.4s ease; background:#fff; padding:0 15px;}
     .accordion-content.open { padding:15px; max-height:1000px;}
-    #answersTable, #playersTable {
+    #answersTable, #playersTable, #scoreTable {
       font-size:18px; border-collapse:collapse; width:100%; margin-top:10px;
     }
-    #answersTable th,#answersTable td, #playersTable th,#playersTable td {
+    #answersTable th,#answersTable td, #playersTable th,#playersTable td, #scoreTable th,#scoreTable td {
       border-bottom:1px solid #ccc; padding:8px; text-align:left;
     }
     #playersTable th:nth-child(2), #playersTable td:nth-child(2) {
@@ -45,19 +45,12 @@
     }
     /* Switch styling */
     .switch {
-      display: flex;
-      align-items: center;
-      margin: 8px 0;
-    }
-    .switch label {
-      display: flex;
+      display: inline-flex;
       align-items: center;
       gap: 10px;
       cursor: pointer;
     }
-    .switch input {
-      display: none;
-    }
+    .switch input { display: none; }
     .slider {
       position: relative;
       width: 40px;
@@ -77,24 +70,12 @@
       border-radius: 50%;
       transition: transform 0.3s;
     }
-    .switch input:checked + .slider {
-      background-color: #4CAF50;
-    }
-    .switch input:checked + .slider::before {
-      transform: translateX(20px);
-    }
+    .switch input:checked + .slider { background-color: #4CAF50; }
+    .switch input:checked + .slider::before { transform: translateX(20px); }
     /* Top status styling */
-    #topStatus {
-      font-weight:bold;
-      color:#444;
-      margin-left:auto;
-    }
-    .roomHeader {
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      margin-bottom:10px;
-    }
+    #topStatus { font-weight:bold; color:#444; margin-left:auto; }
+    .roomHeader { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .small { font-size: 12px; color: #666; }
   </style>
 </head>
 <body>
@@ -102,12 +83,12 @@
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
     <h2>
       🐮 Player Dashboard 
-      <span style="font-size:10px; font-weight:normal; margin-left:10px;">(v 1.1.2)</span>
+      <span class="small">(v 1.1.0)</span>
     </h2>
   </div>
 
   <div class="accordion">
-    <div class="accordion-header" onclick="toggleAccordion('questionBox')">Game Room Info:</div>
+    <div class="accordion-header" onclick="toggleAccordion('questionBox')">Game Room Info</div>
     <div id="questionBox" class="accordion-content open">
       <div class="roomHeader">
         <p id="roomLabel"></p>
@@ -134,9 +115,9 @@
     </div>
   </div>
 
-  <!-- New Control Switches Accordion -->
+  <!-- Control Switches Accordion -->
   <div class="accordion">
-    <div class="accordion-header" onclick="toggleAccordion('controlsBox')">Control Switches:</div>
+    <div class="accordion-header" onclick="toggleAccordion('controlsBox')">Control switches</div>
     <div id="controlsBox" class="accordion-content">
       <div class="switch">
         <label>
@@ -162,11 +143,24 @@
     </div>
   </div>
 
+  <!-- Answers Accordion (with scoring toggles) -->
   <div id="answersAccordion" class="accordion" style="display:none;">
     <div class="accordion-header" onclick="toggleAccordion('answersTableWrapper')">Answers</div>
     <div id="answersTableWrapper" class="accordion-content">
       <table id="answersTable">
-        <thead><tr><th>Name</th><th>Answer</th></tr></thead>
+        <thead><tr><th>Point</th><th>Name</th><th>Answer</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Scoreboard Accordion -->
+  <div class="accordion">
+    <div class="accordion-header" onclick="toggleAccordion('scoreboardBox')">Scoreboard</div>
+    <div id="scoreboardBox" class="accordion-content">
+      <button id="updateScoresBtn">Update Scores</button>
+      <table id="scoreTable">
+        <thead><tr><th>Player</th><th>Total</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -188,27 +182,23 @@
 
     let allPlayers = new Set();
     let answersShown = false;
+    let currentRound = 0;
+    let scoreboard = []; // server-sourced [{player_name, total, rounds:{round:points}}]
 
-// Switch overrides
-document.getElementById("toggleStart").addEventListener("change", e => {
-  startBtn.disabled = !e.target.checked;
-});
+    // Switch overrides: direct control
+    document.getElementById("toggleStart").addEventListener("change", e => {
+      startBtn.disabled = !e.target.checked;
+    });
+    document.getElementById("toggleShow").addEventListener("change", e => {
+      showBtn.disabled = !e.target.checked;
+    });
+    document.getElementById("toggleSubmit").addEventListener("change", e => {
+      const on = e.target.checked;
+      submitBtn.disabled = !on;
+      inputBox.disabled = !on;
+    });
 
-document.getElementById("toggleShow").addEventListener("change", e => {
-  showBtn.disabled = !e.target.checked;
-});
-
-document.getElementById("toggleSubmit").addEventListener("change", e => {
-  if (e.target.checked) {
-    submitBtn.disabled = false;
-    inputBox.disabled = false;
-  } else {
-    submitBtn.disabled = true;
-    inputBox.disabled = true;
-  }
-});
-
-
+    // Player list updates: top status, table, progress if round active
     socket.on("playerList", data => {
       const players = data.players || data;
       const activeCount = data.activeCount || players.filter(p => p.active).length;
@@ -224,24 +214,37 @@ document.getElementById("toggleSubmit").addEventListener("change", e => {
         })
         .join("");
 
-      // Update both places
       statusMsg.innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
       document.getElementById("topStatus").innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
 
-      // Also update progress if a round is active
       if (document.getElementById("qaSection").style.display === "block") {
         document.getElementById("progress").innerText = `Submitted: ${submittedCount} / ${activeCount}`;
+      }
+    });
+
+    // Progress updates also control Show Answers enabled state for everyone
+    socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
+      document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;
+      if (totalPlayers > 0 && submittedCount === totalPlayers) {
+        showBtn.disabled = false;
+        document.getElementById("toggleShow").checked = true;
+      } else {
+        showBtn.disabled = true;
+        document.getElementById("toggleShow").checked = false;
       }
     });
 
     startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
 
     socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber,myAnswer})=>{
+      currentRound = roundNumber;
+      answersShown = false;
+
       startBtn.disabled=true;
-      document.getElementById("toggleStart").checked = false; // sync switch
+      document.getElementById("toggleStart").checked = false;
 
       showBtn.disabled=true;
-      document.getElementById("toggleShow").checked = false; // sync switch
+      document.getElementById("toggleShow").checked = false;
 
       statusMsg.innerText="Round in progress…";
       document.getElementById("qaSection").style.display="block";
@@ -254,12 +257,12 @@ document.getElementById("toggleSubmit").addEventListener("change", e => {
       if (answersShown || myAnswer) {
         submitBtn.disabled=true;
         inputBox.disabled=true;
-        document.getElementById("toggleSubmit").checked = false; // sync switch
+        document.getElementById("toggleSubmit").checked = false;
         inputBox.value = myAnswer || "";
       } else {
         submitBtn.disabled=false;
         inputBox.disabled=false;
-        document.getElementById("toggleSubmit").checked = true; // sync switch
+        document.getElementById("toggleSubmit").checked = true;
         inputBox.value = "";
         submitBtn.onclick=()=>{
           const answer=inputBox.value.trim();
@@ -267,27 +270,14 @@ document.getElementById("toggleSubmit").addEventListener("change", e => {
           socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
           submitBtn.disabled=true;
           inputBox.disabled=true;
-          document.getElementById("toggleSubmit").checked = false; // sync switch
+          document.getElementById("toggleSubmit").checked = false;
         };
-      }
-    });
-
-    socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
-      document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;
-
-      // Enable Show Answers only if all active players have submitted
-      if (totalPlayers > 0 && submittedCount === totalPlayers) {
-        showBtn.disabled = false;
-        document.getElementById("toggleShow").checked = true; // sync switch
-      } else {
-        showBtn.disabled = true;
-        document.getElementById("toggleShow").checked = false; // sync switch
       }
     });
 
     socket.on("allSubmitted",()=>{
       showBtn.disabled=false;
-      document.getElementById("toggleShow").checked = true; // sync switch
+      document.getElementById("toggleShow").checked = true;
     });
 
     showBtn.onclick=()=>{
@@ -295,19 +285,112 @@ document.getElementById("toggleSubmit").addEventListener("change", e => {
       answersShown = true;
     };
 
-    socket.on("answersRevealed",rows=>{
-      document.querySelector("#answersTable tbody").innerHTML=rows
-        .map(r=>`<tr><td>${escapeHTML(r.name)}</td><td>${escapeHTML(r.answer)}</td></tr>`).join("");
+    // Render answers and attach point toggles
+    socket.on("answersRevealed", rows => {
+      // Build table with Point toggle column
+      document.querySelector("#answersTable thead").innerHTML =
+        "<tr><th>Point</th><th>Name</th><th>Answer</th></tr>";
+
+      // Get per-round map from scoreboard to pre-check toggles
+      const roundMap = toRoundMap(scoreboard, currentRound);
+      document.querySelector("#answersTable tbody").innerHTML = rows
+        .map(r => {
+          const name = escapeHTML(r.name);
+          const ans = escapeHTML(r.answer);
+          const checked = roundMap[name] === 1 ? "checked" : "";
+          return `
+            <tr>
+              <td>
+                <label class="switch">
+                  <input type="checkbox" class="scoreToggle" data-player="${name}" data-round="${currentRound}" ${checked}>
+                  <span class="slider"></span>
+                </label>
+              </td>
+              <td>${name}</td>
+              <td>${ans}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
       document.getElementById("answersAccordion").style.display="block";
       openAccordion("answersTableWrapper");
       closeAccordion("questionBox");
       showBtn.disabled=true;
-      document.getElementById("toggleShow").checked = false; // sync switch
+      document.getElementById("toggleShow").checked = false;
       startBtn.disabled=false;
-      document.getElementById("toggleStart").checked = true; // sync switch
+      document.getElementById("toggleStart").checked = true;
       statusMsg.innerText="Round finished. You can start a new round.";
     });
 
+    // Persist point toggles to server
+    document.addEventListener("change", e => {
+      if (e.target.classList.contains("scoreToggle")) {
+        const player = e.target.dataset.player;
+        const round = parseInt(e.target.dataset.round, 10);
+        const points = e.target.checked ? 1 : 0;
+        socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
+      }
+    });
+
+    // Receive scoreboard from server and render
+    socket.on("scoreboardUpdated", data => {
+      scoreboard = data || [];
+      renderScoreboard(scoreboard);
+      // If answers are visible, ensure toggles reflect stored scores for current round
+      if (document.getElementById("answersAccordion").style.display === "block") {
+        const roundMap = toRoundMap(scoreboard, currentRound);
+        document.querySelectorAll(".scoreToggle").forEach(cb => {
+          const player = cb.dataset.player;
+          cb.checked = roundMap[player] === 1;
+        });
+      }
+    });
+
+    // Manual score edits -> send to server
+    document.getElementById("updateScoresBtn").onclick = () => {
+      document.querySelectorAll(".scoreInput").forEach(input => {
+        const player = input.dataset.player;
+        const round = parseInt(input.dataset.round, 10);
+        const val = parseInt(input.value, 10);
+        const points = Number.isFinite(val) ? val : 0;
+        socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
+      });
+    };
+
+    // Utilities: scoreboard rendering and mapping
+    function renderScoreboard(data) {
+      const allRounds = data.flatMap(d => Object.keys(d.rounds || {}).map(n => parseInt(n, 10)));
+      const maxRound = Math.max(0, ...allRounds);
+
+      const header = "<tr><th>Player</th><th>Total</th>" +
+        Array.from({length: maxRound}, (_, i) => `<th>Round ${i+1}</th>`).join("") +
+        "</tr>";
+      document.querySelector("#scoreTable thead").innerHTML = header;
+
+      const rows = data.map(d => {
+        const total = d.total || 0;
+        const roundCells = Array.from({length: maxRound}, (_, i) => {
+          const rnum = i + 1;
+          const val = (d.rounds && d.rounds[rnum]) != null ? d.rounds[rnum] : 0;
+          return `<td><input type="text" value="${val}" data-player="${escapeHTML(d.player_name)}" data-round="${rnum}" class="scoreInput"></td>`;
+        }).join("");
+        return `<tr><td>${escapeHTML(d.player_name)}</td><td>${total}</td>${roundCells}</tr>`;
+      }).join("");
+
+      document.querySelector("#scoreTable tbody").innerHTML = rows;
+    }
+
+    function toRoundMap(data, round) {
+      const map = {};
+      (data || []).forEach(d => {
+        const val = (d.rounds && d.rounds[round]) != null ? d.rounds[round] : 0;
+        map[escapeHTML(d.player_name)] = parseInt(val, 10) === 1 ? 1 : 0;
+      });
+      return map;
+    }
+
+    // Existing helpers
     function escapeHTML(str){
       const div=document.createElement('div');
       div.innerText=String(str||"");
@@ -319,4 +402,3 @@ document.getElementById("toggleSubmit").addEventListener("change", e => {
   </script>
 </body>
 </html>
-
