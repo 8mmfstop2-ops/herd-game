@@ -1,4 +1,4 @@
-// v1.0.7
+// v1.1.0
 
 const express = require("express"); 
 const http = require("http");
@@ -29,6 +29,7 @@ const pool = new Pool({
     active_question_id INT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );`);
+
   await pool.query(`CREATE TABLE IF NOT EXISTS players (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -38,12 +39,14 @@ const pool = new Pool({
   );`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS players_name_room_unique
     ON players (LOWER(name), room_code);`);
+
   await pool.query(`CREATE TABLE IF NOT EXISTS questions (
     id SERIAL PRIMARY KEY,
     prompt TEXT NOT NULL,
     sort_number INT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );`);
+
   await pool.query(`CREATE TABLE IF NOT EXISTS answers (
     id SERIAL PRIMARY KEY,
     room_code TEXT NOT NULL,
@@ -52,6 +55,17 @@ const pool = new Pool({
     round_number INT NOT NULL,
     answer TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
+
+  // New persistent scoring table
+  await pool.query(`CREATE TABLE IF NOT EXISTS scores (
+    id SERIAL PRIMARY KEY,
+    room_code TEXT NOT NULL,
+    player_name TEXT NOT NULL,
+    round_number INT NOT NULL,
+    points INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE (room_code, player_name, round_number)
   );`);
 })();
 
@@ -117,18 +131,6 @@ app.delete("/api/questions/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-// ---------------- Player Join API ----------------
-app.post("/api/player/join", async (req, res) => {
-  const { name, roomCode } = req.body;
-  const rc = roomCode.toUpperCase();
-  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
-  if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
-  if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
-
-  await pool.query("INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING", [name, rc]);
-  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
-});
-
 // ---------------- Helpers ----------------
 function getActiveNames(roomCode) {
   const connected = io.sockets.adapter.rooms.get(roomCode) || new Set();
@@ -155,6 +157,20 @@ async function getActiveStats(roomCode) {
   return { merged, activeCount, submittedActiveCount };
 }
 
+async function getScoreboard(roomCode) {
+  const r = await pool.query(
+    `SELECT player_name,
+            COALESCE(SUM(points),0) AS total,
+            COALESCE(json_object_agg(round_number, points) FILTER (WHERE points IS NOT NULL), '{}') AS rounds
+     FROM scores
+     WHERE room_code=$1
+     GROUP BY player_name
+     ORDER BY player_name`,
+    [roomCode]
+  );
+  return r.rows; // [{player_name, total, rounds:{round:points,...}}]
+}
+
 async function emitPlayerList(roomCode) {
   const { merged, activeCount, submittedActiveCount } = await getActiveStats(roomCode);
   io.to(roomCode).emit("playerList", {
@@ -162,11 +178,16 @@ async function emitPlayerList(roomCode) {
     activeCount,
     submittedCount: submittedActiveCount
   });
-  // Optional improvement: also emit submissionProgress here
+  // Keep progress synced on join/leave/submit
   io.to(roomCode).emit("submissionProgress", {
     submittedCount: submittedActiveCount,
     totalPlayers: activeCount
   });
+}
+
+async function emitScoreboard(roomCode) {
+  const scoreboard = await getScoreboard(roomCode);
+  io.to(roomCode).emit("scoreboardUpdated", scoreboard);
 }
 
 // ---------------- Socket.IO Game Logic ----------------
@@ -183,6 +204,7 @@ io.on("connection", (socket) => {
     );
 
     await emitPlayerList(rc);
+    await emitScoreboard(rc);
 
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
     if (room.rows.length && room.rows[0].active_question_id) {
@@ -269,6 +291,22 @@ io.on("connection", (socket) => {
       [rc, room.rows[0].active_question_id, room.rows[0].current_round]
     );
     io.to(rc).emit("answersRevealed", rr.rows);
+
+    // Also emit latest scoreboard so toggles can reflect prior points for this round
+    await emitScoreboard(rc);
+  });
+
+  // Award or update points for a player and round
+  socket.on("awardPoint", async ({ roomCode, playerName, roundNumber, points }) => {
+    const rc = roomCode.toUpperCase();
+    await pool.query(
+      `INSERT INTO scores (room_code, player_name, round_number, points)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (room_code, player_name, round_number)
+       DO UPDATE SET points=$4`,
+      [rc, playerName, roundNumber, points]
+    );
+    await emitScoreboard(rc);
   });
 
   socket.on("disconnect", async () => {
