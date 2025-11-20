@@ -1,6 +1,6 @@
-// v1.0.6
+// v1.0.7
 
-const express = require("express");
+const express = require("express"); 
 const http = require("http");
 const path = require("path");
 const bodyParser = require("body-parser");
@@ -162,6 +162,11 @@ async function emitPlayerList(roomCode) {
     activeCount,
     submittedCount: submittedActiveCount
   });
+  // Optional improvement: also emit submissionProgress here
+  io.to(roomCode).emit("submissionProgress", {
+    submittedCount: submittedActiveCount,
+    totalPlayers: activeCount
+  });
 }
 
 // ---------------- Socket.IO Game Logic ----------------
@@ -277,4 +282,3 @@ io.on("connection", (socket) => {
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
-
