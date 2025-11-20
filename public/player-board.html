@@ -102,7 +102,7 @@
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
     <h2>
       🐮 Player Dashboard 
-      <span style="font-size:10px; font-weight:normal; margin-left:10px;">(v 1.0.6)</span>
+      <span style="font-size:10px; font-weight:normal; margin-left:10px;">(v 1.0.7)</span>
     </h2>
   </div>
 
@@ -221,6 +221,11 @@
       // Update both places
       statusMsg.innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
       document.getElementById("topStatus").innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
+
+      // Also update progress if a round is active
+      if (document.getElementById("qaSection").style.display === "block") {
+        document.getElementById("progress").innerText = `Submitted: ${submittedCount} / ${activeCount}`;
+      }
     });
 
     startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
@@ -263,6 +268,15 @@
 
     socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
       document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;
+
+      // Enable Show Answers only if all active players have submitted
+      if (totalPlayers > 0 && submittedCount === totalPlayers) {
+        showBtn.disabled = false;
+        document.getElementById("toggleShow").checked = true; // sync switch
+      } else {
+        showBtn.disabled = true;
+        document.getElementById("toggleShow").checked = false; // sync switch
+      }
     });
 
     socket.on("allSubmitted",()=>{
@@ -299,4 +313,3 @@
   </script>
 </body>
 </html>
-
