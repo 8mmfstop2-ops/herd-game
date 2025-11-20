@@ -146,10 +146,52 @@ app.post("/api/player/join", async (req, res) => {
   res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
 });
 
+// ---------------- Helpers for active stats and player list ----------------
+function getActiveNames(roomCode) {
+  const connected = io.sockets.adapter.rooms.get(roomCode) || new Set();
+  const activeNames = [];
+  for (const socketId of connected) {
+    const s = io.sockets.sockets.get(socketId);
+    if (s && s.data && s.data.name) {
+      activeNames.push(s.data.name);
+    }
+  }
+  return activeNames;
+}
+
+async function getActiveStats(roomCode) {
+  const dbPlayers = await pool.query(
+    "SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC",
+    [roomCode]
+  );
+  const activeNames = getActiveNames(roomCode);
+  const merged = dbPlayers.rows.map(p => ({
+    name: p.name,
+    submitted: p.submitted,
+    active: activeNames.includes(p.name)
+  }));
+  const activeCount = merged.filter(p => p.active).length;
+  const submittedActiveCount = merged.filter(p => p.active && p.submitted).length;
+  return { merged, activeCount, submittedActiveCount };
+}
+
+async function emitPlayerList(roomCode) {
+  const { merged, activeCount, submittedActiveCount } = await getActiveStats(roomCode);
+  io.to(roomCode).emit("playerList", {
+    players: merged,
+    activeCount,
+    submittedCount: submittedActiveCount
+  });
+}
+
 // ---------------- Socket.IO Game Logic ----------------
 io.on("connection", (socket) => {
   socket.on("joinLobby", async ({ roomCode, name }) => {
     const rc = roomCode.toUpperCase();
+    // Track identity on the socket for accurate "active" detection
+    socket.data.name = name;
+    socket.data.roomCode = rc;
+
     socket.join(rc);
 
     await pool.query(
@@ -166,10 +208,11 @@ io.on("connection", (socket) => {
         "SELECT answer FROM answers WHERE room_code=$1 AND LOWER(player_name)=LOWER($2) AND question_id=$3 AND round_number=$4",
         [rc, name, room.rows[0].active_question_id, room.rows[0].current_round]
       );
+      const { activeCount } = await getActiveStats(rc);
       socket.emit("roundStarted", {
         questionId: room.rows[0].active_question_id,
         prompt: q.rows[0].prompt,
-        playerCount: (await pool.query("SELECT COUNT(*) FROM players WHERE room_code=$1", [rc])).rows[0].count,
+        playerCount: activeCount, // use active players only
         roundNumber: room.rows[0].current_round,
         myAnswer: ans.rows.length ? ans.rows[0].answer : null
       });
@@ -189,11 +232,11 @@ io.on("connection", (socket) => {
     await emitPlayerList(rc);
 
     const roundNum = (await pool.query("SELECT current_round FROM rooms WHERE code=$1", [rc])).rows[0].current_round;
-
+    const { activeCount } = await getActiveStats(rc);
     io.to(rc).emit("roundStarted", {
       questionId: qid,
       prompt: q.rows[0].prompt,
-      playerCount: (await pool.query("SELECT COUNT(*) FROM players WHERE room_code=$1", [rc])).rows[0].count,
+      playerCount: activeCount,
       roundNumber: roundNum,
       myAnswer: null
     });
@@ -212,11 +255,11 @@ io.on("connection", (socket) => {
 
     await emitPlayerList(rc);
 
-    const submittedCount = (await pool.query("SELECT COUNT(*) FROM players WHERE room_code=$1 AND submitted=true", [rc])).rows[0].count;
-    const totalPlayers = (await pool.query("SELECT COUNT(*) FROM players WHERE room_code=$1", [rc])).rows[0].count;
-    io.to(rc).emit("submissionProgress", { submittedCount, totalPlayers });
+    // Use ACTIVE counts for progress and completion
+    const { activeCount, submittedActiveCount } = await getActiveStats(rc);
+    io.to(rc).emit("submissionProgress", { submittedCount: submittedActiveCount, totalPlayers: activeCount });
 
-    if (submittedCount == totalPlayers) {
+    if (activeCount > 0 && submittedActiveCount === activeCount) {
       io.to(rc).emit("allSubmitted");
     }
   });
@@ -234,46 +277,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", async () => {
-    // When a socket disconnects, update player list for all rooms
-    for (const [roomCode] of socket.rooms) {
-      if (roomCode !== socket.id) {
-        await emitPlayerList(roomCode);
-      }
+    // Refresh player list for any rooms this socket is part of
+    const r = socket.data?.roomCode;
+    if (r) {
+      await emitPlayerList(r);
     }
   });
-}); // <-- closes io.on("connection")
-
-// ---------------- Helper to emit full player list ----------------
-async function emitPlayerList(roomCode) {
-  const dbPlayers = await pool.query(
-    "SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC",
-    [roomCode]
-  );
-
-  const connectedSockets = io.sockets.adapter.rooms.get(roomCode) || new Set();
-  const activeNames = [];
-  for (const socketId of connectedSockets) {
-    const s = io.sockets.sockets.get(socketId);
-    if (s && s.handshake && s.handshake.query && s.handshake.query.name) {
-      activeNames.push(s.handshake.query.name);
-    }
-  }
-
-  const merged = dbPlayers.rows.map(p => ({
-    name: p.name,
-    submitted: p.submitted,
-    active: activeNames.includes(p.name)
-  }));
-
-  const activeCount = merged.filter(p => p.active).length;
-  const submittedCount = merged.filter(p => p.active && p.submitted).length;
-
-  io.to(roomCode).emit("playerList", {
-    players: merged,
-    activeCount,
-    submittedCount
-  });
-}
+});
 
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
