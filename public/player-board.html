@@ -33,7 +33,7 @@
       font-size:18px; border-collapse:collapse; width:100%; margin-top:10px;
     }
     #answersTable th,#answersTable td, #playersTable th,#playersTable td, #scoreTable th,#scoreTable td {
-      border-bottom:1px solid #ccc; padding:8px; text-align:left;
+      border-bottom:1px solid #ccc; padding:8px;
     }
     #playersTable th:nth-child(2), #playersTable td:nth-child(2) {
       width: 60px;
@@ -43,19 +43,17 @@
       width:100%; max-width:800px; padding:10px; border-radius:6px;
       border:1px solid #ccc; margin-bottom:10px; font-size:16px;
     }
-/* Switch styling */
-.switch {
-  display: block;          /* stack vertically */
-  margin-bottom: 12px;     /* spacing between switches */
-}
-
-.switch label {
-  display: flex;           /* align slider and text horizontally */
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-}
-
+    /* Switch styling */
+    .switch {
+      display: block;          /* stack vertically */
+      margin-bottom: 12px;
+    }
+    .switch label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+    }
     .switch input { display: none; }
     .slider {
       position: relative;
@@ -76,7 +74,9 @@
       border-radius: 50%;
       transition: transform 0.3s;
     }
-    .switch input:checked + .slider { background-color: #4CAF50; }
+    .switch input:checked + .slider {
+      background-color: #2e7d32; /* green when ON */
+    }
     .switch input:checked + .slider::before { transform: translateX(20px); }
     /* Top status styling */
     #topStatus { font-weight:bold; color:#444; margin-left:auto; }
@@ -84,17 +84,25 @@
     .small { font-size: 12px; color: #666; }
 
     /* Scoreboard styling */
-    #scoreTable th, #scoreTable td {
+    #scoreTable th, #scoreTable td { padding: 6px; }
+    #scoreTable th:first-child, #scoreTable td:first-child {
+      text-align: left;
+      padding-left: 10px;
+    }
+    #scoreTable th:nth-child(2), #scoreTable td:nth-child(2) {
       text-align: center;
-      padding: 6px;
+      width: 60px;
     }
     #scoreTable th:nth-child(n+3), #scoreTable td.roundCell {
-      width: 50px; /* narrow round columns */
-    }
-    .scoreSelect {
-      width: 100%;
       text-align: center;
+      width: 35px; /* narrow round columns */
     }
+    .scoreSelect { width: 100%; text-align: center; }
+
+    /* Answer toggle labels */
+    .pointLabel { margin-left: 8px; font-weight: bold; }
+    .pointLabel.green { color: #2e7d32; }
+    .pointLabel.gray { color: #666; }
   </style>
 </head>
 <body>
@@ -102,7 +110,7 @@
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
     <h2>
       🐮 Player Dashboard 
-      <span class="small">(v 1.1.2)</span>
+      <span class="small">(v 1.1.3a)</span>
     </h2>
   </div>
 
@@ -192,7 +200,8 @@
     const socket=io();
     socket.emit("joinLobby",{roomCode,name:myName});
 
-    const startBtn=document.getElementById("startBtn");
+	const startBtn=document.getElementById("startBtn");
+
     const showBtn=document.getElementById("showAnswersBtn");
     const statusMsg=document.getElementById("statusMessage");
     const submitBtn=document.getElementById("submitAnswerBtn");
@@ -210,7 +219,6 @@
     document.getElementById("toggleShow").addEventListener("change", e => {
       showBtn.disabled = !e.target.checked;
     });
-
     document.getElementById("toggleSubmit").addEventListener("change", e => {
       const on = e.target.checked;
       submitBtn.disabled = !on;
@@ -312,12 +320,15 @@
           const name = escapeHTML(r.name);
           const ans = escapeHTML(r.answer);
           const checked = roundMap[name] === 1 ? "checked" : "";
+          const labelText = roundMap[name] === 1 ? "+1" : "0";
+          const labelClass = roundMap[name] === 1 ? "pointLabel green" : "pointLabel gray";
           return `
             <tr>
               <td>
                 <label class="switch">
                   <input type="checkbox" class="scoreToggle" data-player="${name}" data-round="${currentRound}" ${checked}>
                   <span class="slider"></span>
+                  <span class="${labelClass}">${labelText}</span>
                 </label>
               </td>
               <td>${name}</td>
@@ -344,6 +355,12 @@
         const round = parseInt(e.target.dataset.round, 10);
         const points = e.target.checked ? 1 : 0;
         socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
+
+        const labelSpan = e.target.closest("label").querySelector(".pointLabel");
+        if (labelSpan) {
+          labelSpan.textContent = points === 1 ? "+1" : "0";
+          labelSpan.className = points === 1 ? "pointLabel green" : "pointLabel gray";
+        }
       }
     });
 
@@ -355,6 +372,11 @@
         document.querySelectorAll(".scoreToggle").forEach(cb => {
           const player = cb.dataset.player;
           cb.checked = roundMap[player] === 1;
+          const labelSpan = cb.closest("label").querySelector(".pointLabel");
+          if (labelSpan) {
+            labelSpan.textContent = cb.checked ? "+1" : "0";
+            labelSpan.className = cb.checked ? "pointLabel green" : "pointLabel gray";
+          }
         });
       }
     });
@@ -419,4 +441,3 @@
   </script>
 </body>
 </html>
-
