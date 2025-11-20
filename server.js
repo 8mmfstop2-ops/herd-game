@@ -1,4 +1,4 @@
-// v1.0.2
+// v1.0.5
 
 const express = require("express");
 const http = require("http");
@@ -64,6 +64,32 @@ const pool = new Pool({
     );
   `);
 })();
+
+// ---------------- Admin Login API ----------------
+app.post("/api/admin/login", (req, res) => {
+  const { username, password } = req.body;
+  const ADMIN_USER = process.env.ADMIN_USER || "game-admin";
+  const ADMIN_PASS = process.env.ADMIN_PASS || "Rainbow6GoldenEye";
+  if (username === ADMIN_USER && password === ADMIN_PASS) {
+    return res.json({ success: true });
+  }
+  res.status(401).json({ error: "Invalid credentials" });
+});
+
+// ---------------- Player Join API ----------------
+app.post("/api/player/join", async (req, res) => {
+  const { name, roomCode } = req.body;
+  const rc = roomCode.toUpperCase();
+  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
+  if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
+  if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
+
+  await pool.query(
+    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
+    [name, rc]
+  );
+  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
+});
 
 // ---------------- Helpers ----------------
 function getActiveNames(roomCode) {
@@ -135,7 +161,6 @@ io.on("connection", (socket) => {
         myAnswer: ans.rows.length ? ans.rows[0].answer : null
       });
 
-      // 👇 Broadcast current submission progress to everyone
       io.to(rc).emit("submissionProgress", {
         submittedCount: submittedActiveCount,
         totalPlayers: activeCount
