@@ -43,13 +43,19 @@
       width:100%; max-width:800px; padding:10px; border-radius:6px;
       border:1px solid #ccc; margin-bottom:10px; font-size:16px;
     }
-    /* Switch styling */
-    .switch {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      cursor: pointer;
-    }
+/* Switch styling */
+.switch {
+  display: block;          /* stack vertically */
+  margin-bottom: 12px;     /* spacing between switches */
+}
+
+.switch label {
+  display: flex;           /* align slider and text horizontally */
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
     .switch input { display: none; }
     .slider {
       position: relative;
@@ -96,7 +102,7 @@
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
     <h2>
       🐮 Player Dashboard 
-      <span class="small">(v 1.1.2a)</span>
+      <span class="small">(v 1.1.2)</span>
     </h2>
   </div>
 
@@ -413,3 +419,4 @@
   </script>
 </body>
 </html>
+
