@@ -83,6 +83,18 @@
     .switch input:checked + .slider::before {
       transform: translateX(20px);
     }
+    /* Top status styling */
+    #topStatus {
+      font-weight:bold;
+      color:#444;
+      margin-left:auto;
+    }
+    .roomHeader {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:10px;
+    }
   </style>
 </head>
 <body>
@@ -90,14 +102,17 @@
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
     <h2>
       🐮 Player Dashboard 
-      <span style="font-size:10px; font-weight:normal; margin-left:10px;">(v 1.0.5)</span>
+      <span style="font-size:10px; font-weight:normal; margin-left:10px;">(v 1.0.6)</span>
     </h2>
   </div>
 
   <div class="accordion">
     <div class="accordion-header" onclick="toggleAccordion('questionBox')">Game Room Info:</div>
     <div id="questionBox" class="accordion-content open">
-      <p id="roomLabel"></p>
+      <div class="roomHeader">
+        <p id="roomLabel"></p>
+        <span id="topStatus"></span>
+      </div>
 
       <table id="playersTable">
         <thead><tr><th>Player</th><th>Out</th><th>Status</th></tr></thead>
@@ -203,7 +218,9 @@
         })
         .join("");
 
+      // Update both places
       statusMsg.innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
+      document.getElementById("topStatus").innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
     });
 
     startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
@@ -282,3 +299,4 @@
   </script>
 </body>
 </html>
+
