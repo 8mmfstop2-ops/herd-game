@@ -1,4 +1,4 @@
-// v1.0.5
+// v1.0.6
 
 const express = require("express");
 const http = require("http");
@@ -21,48 +21,38 @@ const pool = new Pool({
 
 // ---------------- Initialize tables ----------------
 (async () => {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS rooms (
-      id SERIAL PRIMARY KEY,
-      code TEXT UNIQUE NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open',
-      current_round INT DEFAULT 0,
-      active_question_id INT,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    );
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS players (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      room_code TEXT REFERENCES rooms(code) ON DELETE CASCADE,
-      submitted BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    );
-  `);
-  await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS players_name_room_unique
-    ON players (LOWER(name), room_code);
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS questions (
-      id SERIAL PRIMARY KEY,
-      prompt TEXT NOT NULL,
-      sort_number INT,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    );
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS answers (
-      id SERIAL PRIMARY KEY,
-      room_code TEXT NOT NULL,
-      player_name TEXT NOT NULL,
-      question_id INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-      round_number INT NOT NULL,
-      answer TEXT NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    );
-  `);
+  await pool.query(`CREATE TABLE IF NOT EXISTS rooms (
+    id SERIAL PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    current_round INT DEFAULT 0,
+    active_question_id INT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS players (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    room_code TEXT REFERENCES rooms(code) ON DELETE CASCADE,
+    submitted BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS players_name_room_unique
+    ON players (LOWER(name), room_code);`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS questions (
+    id SERIAL PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    sort_number INT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS answers (
+    id SERIAL PRIMARY KEY,
+    room_code TEXT NOT NULL,
+    player_name TEXT NOT NULL,
+    question_id INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    round_number INT NOT NULL,
+    answer TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`);
 })();
 
 // ---------------- Admin Login API ----------------
@@ -76,6 +66,57 @@ app.post("/api/admin/login", (req, res) => {
   res.status(401).json({ error: "Invalid credentials" });
 });
 
+// ---------------- Room Management APIs ----------------
+app.get("/api/rooms", async (_req, res) => {
+  const r = await pool.query("SELECT code, status, created_at FROM rooms ORDER BY id DESC");
+  res.json(r.rows);
+});
+app.post("/api/rooms", async (req, res) => {
+  const { code, status } = req.body;
+  if (!code) return res.status(400).json({ error: "Room code required" });
+  try {
+    await pool.query("INSERT INTO rooms (code, status) VALUES ($1,$2)", [code.toUpperCase(), status || "open"]);
+    res.json({ success: true });
+  } catch {
+    res.status(400).json({ error: "Room already exists" });
+  }
+});
+app.patch("/api/rooms/:code", async (req, res) => {
+  const { status } = req.body;
+  const code = req.params.code.toUpperCase();
+  const r = await pool.query("UPDATE rooms SET status=$1 WHERE code=$2 RETURNING code,status", [status, code]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Room not found" });
+  res.json(r.rows[0]);
+});
+
+// ---------------- Question Management APIs ----------------
+app.get("/api/questions", async (_req, res) => {
+  const r = await pool.query("SELECT id, prompt, sort_number FROM questions ORDER BY id DESC");
+  res.json(r.rows);
+});
+app.post("/api/questions", async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: "Prompt required" });
+  const r = await pool.query("INSERT INTO questions (prompt) VALUES ($1) RETURNING id, prompt", [text.trim()]);
+  const newId = r.rows[0].id;
+  await pool.query("UPDATE questions SET sort_number = $1 WHERE id = $1", [newId]);
+  res.json({ id: newId, prompt: r.rows[0].prompt, sort_number: newId });
+});
+app.put("/api/questions/:id", async (req, res) => {
+  const { text } = req.body;
+  const id = parseInt(req.params.id, 10);
+  if (!text) return res.status(400).json({ error: "Prompt required" });
+  const r = await pool.query("UPDATE questions SET prompt=$1 WHERE id=$2 RETURNING id, prompt, sort_number", [text.trim(), id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Question not found" });
+  res.json(r.rows[0]);
+});
+app.delete("/api/questions/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = await pool.query("DELETE FROM questions WHERE id=$1 RETURNING id", [id]);
+  if (r.rowCount === 0) return res.status(404).json({ error: "Question not found" });
+  res.json({ success: true });
+});
+
 // ---------------- Player Join API ----------------
 app.post("/api/player/join", async (req, res) => {
   const { name, roomCode } = req.body;
@@ -84,10 +125,7 @@ app.post("/api/player/join", async (req, res) => {
   if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
   if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
 
-  await pool.query(
-    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
-    [name, rc]
-  );
+  await pool.query("INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING", [name, rc]);
   res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
 });
 
@@ -105,10 +143,7 @@ function getActiveNames(roomCode) {
 }
 
 async function getActiveStats(roomCode) {
-  const dbPlayers = await pool.query(
-    "SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC",
-    [roomCode]
-  );
+  const dbPlayers = await pool.query("SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC", [roomCode]);
   const activeNames = getActiveNames(roomCode);
   const merged = dbPlayers.rows.map(p => ({
     name: p.name,
@@ -242,3 +277,4 @@ io.on("connection", (socket) => {
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
