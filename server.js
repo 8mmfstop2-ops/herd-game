@@ -17,7 +17,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Initialize tables
+// ---------------- Initialize tables ----------------
 (async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rooms (
@@ -97,7 +97,7 @@ app.patch("/api/rooms/:code", async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// ---------------- Question (Card) Management APIs ----------------
+// ---------------- Question Management APIs ----------------
 app.get("/api/questions", async (_req, res) => {
   const r = await pool.query("SELECT id, prompt, sort_number FROM questions ORDER BY id DESC");
   res.json(r.rows);
@@ -196,6 +196,7 @@ io.on("connection", (socket) => {
       roundNumber: roundNum,
       myAnswer: null
     });
+  });
 
   socket.on("submitAnswer", async ({ roomCode, name, questionId, answer }) => {
     const rc = roomCode.toUpperCase();
@@ -230,7 +231,7 @@ io.on("connection", (socket) => {
     );
     io.to(rc).emit("answersRevealed", rr.rows);
   });
-});
+}); // <-- closes io.on("connection")
 
 // ---------------- Helper to emit full player list ----------------
 async function emitPlayerList(roomCode) {
