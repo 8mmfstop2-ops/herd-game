@@ -102,7 +102,7 @@
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
     <h2>
       🐮 Player Dashboard 
-      <span style="font-size:10px; font-weight:normal; margin-left:10px;">(v 1.0.7)</span>
+      <span style="font-size:10px; font-weight:normal; margin-left:10px;">(v 1.1.2)</span>
     </h2>
   </div>
 
@@ -189,19 +189,25 @@
     let allPlayers = new Set();
     let answersShown = false;
 
-    // Switch overrides
-    document.getElementById("toggleStart").addEventListener("change", e => {
-      if (!e.target.checked) startBtn.disabled = true;
-    });
-    document.getElementById("toggleShow").addEventListener("change", e => {
-      if (!e.target.checked) showBtn.disabled = true;
-    });
-    document.getElementById("toggleSubmit").addEventListener("change", e => {
-      if (!e.target.checked) {
-        submitBtn.disabled = true;
-        inputBox.disabled = true;
-      }
-    });
+// Switch overrides
+document.getElementById("toggleStart").addEventListener("change", e => {
+  startBtn.disabled = !e.target.checked;
+});
+
+document.getElementById("toggleShow").addEventListener("change", e => {
+  showBtn.disabled = !e.target.checked;
+});
+
+document.getElementById("toggleSubmit").addEventListener("change", e => {
+  if (e.target.checked) {
+    submitBtn.disabled = false;
+    inputBox.disabled = false;
+  } else {
+    submitBtn.disabled = true;
+    inputBox.disabled = true;
+  }
+});
+
 
     socket.on("playerList", data => {
       const players = data.players || data;
@@ -313,3 +319,4 @@
   </script>
 </body>
 </html>
+
