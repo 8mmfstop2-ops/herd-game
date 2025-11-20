@@ -131,6 +131,24 @@ app.delete("/api/questions/:id", async (req, res) => {
   res.json({ success: true });
 });
 
+
+// ---------------- Player Join API ----------------
+app.post("/api/player/join", async (req, res) => {
+  const { name, roomCode } = req.body;
+  const rc = roomCode.toUpperCase();
+  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
+  if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
+  if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
+
+  await pool.query(
+    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
+    [name, rc]
+  );
+
+  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
+});
+
+
 // ---------------- Helpers ----------------
 function getActiveNames(roomCode) {
   const connected = io.sockets.adapter.rooms.get(roomCode) || new Set();
@@ -320,4 +338,5 @@ io.on("connection", (socket) => {
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
 
