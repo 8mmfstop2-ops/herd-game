@@ -76,6 +76,19 @@
     #topStatus { font-weight:bold; color:#444; margin-left:auto; }
     .roomHeader { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
     .small { font-size: 12px; color: #666; }
+
+    /* Scoreboard styling */
+    #scoreTable th, #scoreTable td {
+      text-align: center;
+      padding: 6px;
+    }
+    #scoreTable th:nth-child(n+3), #scoreTable td.roundCell {
+      width: 50px; /* narrow round columns */
+    }
+    .scoreSelect {
+      width: 100%;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -83,7 +96,7 @@
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
     <h2>
       🐮 Player Dashboard 
-      <span class="small">(v 1.1.2)</span>
+      <span class="small">(v 1.1.2a)</span>
     </h2>
   </div>
 
@@ -143,7 +156,7 @@
     </div>
   </div>
 
-  <!-- Answers Accordion (with scoring toggles) -->
+  <!-- Answers Accordion -->
   <div id="answersAccordion" class="accordion" style="display:none;">
     <div class="accordion-header" onclick="toggleAccordion('answersTableWrapper')">Answers</div>
     <div id="answersTableWrapper" class="accordion-content">
@@ -158,7 +171,6 @@
   <div class="accordion">
     <div class="accordion-header" onclick="toggleAccordion('scoreboardBox')">Scoreboard</div>
     <div id="scoreboardBox" class="accordion-content">
-      <button id="updateScoresBtn">Update Scores</button>
       <table id="scoreTable">
         <thead><tr><th>Player</th><th>Total</th></tr></thead>
         <tbody></tbody>
@@ -185,20 +197,21 @@
     let currentRound = 0;
     let scoreboard = []; // server-sourced [{player_name, total, rounds:{round:points}}]
 
-    // Switch overrides: direct control
+    // Switch overrides
     document.getElementById("toggleStart").addEventListener("change", e => {
       startBtn.disabled = !e.target.checked;
     });
     document.getElementById("toggleShow").addEventListener("change", e => {
       showBtn.disabled = !e.target.checked;
     });
+
     document.getElementById("toggleSubmit").addEventListener("change", e => {
       const on = e.target.checked;
       submitBtn.disabled = !on;
       inputBox.disabled = !on;
     });
 
-    // Player list updates: top status, table, progress if round active
+    // Player list updates
     socket.on("playerList", data => {
       const players = data.players || data;
       const activeCount = data.activeCount || players.filter(p => p.active).length;
@@ -222,8 +235,7 @@
       }
     });
 
-    // Progress updates also control Show Answers enabled state for everyone
-    socket.on("submissionProgress",({submittedCount,totalPlayers})=>{
+    socket.on("submissionProgress", ({submittedCount,totalPlayers}) => {
       document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;
       if (totalPlayers > 0 && submittedCount === totalPlayers) {
         showBtn.disabled = false;
@@ -234,9 +246,11 @@
       }
     });
 
-    startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
+    startBtn.onclick = () => {
+      socket.emit("startRound",{roomCode});
+    };
 
-    socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber,myAnswer})=>{
+    socket.on("roundStarted", ({questionId,prompt,playerCount,roundNumber,myAnswer}) => {
       currentRound = roundNumber;
       answersShown = false;
 
@@ -275,23 +289,17 @@
       }
     });
 
-    socket.on("allSubmitted",()=>{
+    socket.on("allSubmitted", () => {
       showBtn.disabled=false;
       document.getElementById("toggleShow").checked = true;
     });
 
-    showBtn.onclick=()=>{
+    showBtn.onclick = () => {
       socket.emit("showAnswers",{roomCode});
       answersShown = true;
     };
 
-    // Render answers and attach point toggles
     socket.on("answersRevealed", rows => {
-      // Build table with Point toggle column
-      document.querySelector("#answersTable thead").innerHTML =
-        "<tr><th>Point</th><th>Name</th><th>Answer</th></tr>";
-
-      // Get per-round map from scoreboard to pre-check toggles
       const roundMap = toRoundMap(scoreboard, currentRound);
       document.querySelector("#answersTable tbody").innerHTML = rows
         .map(r => {
@@ -323,7 +331,7 @@
       statusMsg.innerText="Round finished. You can start a new round.";
     });
 
-    // Persist point toggles to server
+    // Persist point toggles
     document.addEventListener("change", e => {
       if (e.target.classList.contains("scoreToggle")) {
         const player = e.target.dataset.player;
@@ -333,11 +341,9 @@
       }
     });
 
-    // Receive scoreboard from server and render
     socket.on("scoreboardUpdated", data => {
       scoreboard = data || [];
       renderScoreboard(scoreboard);
-      // If answers are visible, ensure toggles reflect stored scores for current round
       if (document.getElementById("answersAccordion").style.display === "block") {
         const roundMap = toRoundMap(scoreboard, currentRound);
         document.querySelectorAll(".scoreToggle").forEach(cb => {
@@ -347,24 +353,13 @@
       }
     });
 
-    // Manual score edits -> send to server
-    document.getElementById("updateScoresBtn").onclick = () => {
-      document.querySelectorAll(".scoreInput").forEach(input => {
-        const player = input.dataset.player;
-        const round = parseInt(input.dataset.round, 10);
-        const val = parseInt(input.value, 10);
-        const points = Number.isFinite(val) ? val : 0;
-        socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
-      });
-    };
-
-    // Utilities: scoreboard rendering and mapping
+    // Render scoreboard with dropdowns
     function renderScoreboard(data) {
       const allRounds = data.flatMap(d => Object.keys(d.rounds || {}).map(n => parseInt(n, 10)));
       const maxRound = Math.max(0, ...allRounds);
 
       const header = "<tr><th>Player</th><th>Total</th>" +
-        Array.from({length: maxRound}, (_, i) => `<th>Round ${i+1}</th>`).join("") +
+        Array.from({length: maxRound}, (_, i) => `<th>#${i+1}</th>`).join("") +
         "</tr>";
       document.querySelector("#scoreTable thead").innerHTML = header;
 
@@ -373,12 +368,29 @@
         const roundCells = Array.from({length: maxRound}, (_, i) => {
           const rnum = i + 1;
           const val = (d.rounds && d.rounds[rnum]) != null ? d.rounds[rnum] : 0;
-          return `<td><input type="text" value="${val}" data-player="${escapeHTML(d.player_name)}" data-round="${rnum}" class="scoreInput"></td>`;
+          return `
+            <td class="roundCell">
+              <select data-player="${escapeHTML(d.player_name)}" data-round="${rnum}" class="scoreSelect">
+                <option value="0" ${val == 0 ? "selected" : ""}>0</option>
+                <option value="1" ${val == 1 ? "selected" : ""}>1</option>
+              </select>
+            </td>
+          `;
         }).join("");
         return `<tr><td>${escapeHTML(d.player_name)}</td><td>${total}</td>${roundCells}</tr>`;
       }).join("");
 
       document.querySelector("#scoreTable tbody").innerHTML = rows;
+
+      // Auto-persist dropdown changes
+      document.querySelectorAll(".scoreSelect").forEach(select => {
+        select.addEventListener("change", e => {
+          const player = e.target.dataset.player;
+          const round = parseInt(e.target.dataset.round, 10);
+          const points = parseInt(e.target.value, 10);
+          socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
+        });
+      });
     }
 
     function toRoundMap(data, round) {
@@ -390,7 +402,6 @@
       return map;
     }
 
-    // Existing helpers
     function escapeHTML(str){
       const div=document.createElement('div');
       div.innerText=String(str||"");
