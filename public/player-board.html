@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Player Board — Udderly the Same</title>
+  <title>Player Dashboard — Udderly the Same</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     body {
@@ -36,7 +35,6 @@
     #answersTable th,#answersTable td, #playersTable th,#playersTable td {
       border-bottom:1px solid #ccc; padding:8px; text-align:left;
     }
-    /* 👻 column wide enough */
     #playersTable th:nth-child(2), #playersTable td:nth-child(2) {
       width: 60px;
       text-align: center;
@@ -45,16 +43,55 @@
       width:100%; max-width:800px; padding:10px; border-radius:6px;
       border:1px solid #ccc; margin-bottom:10px; font-size:16px;
     }
+    /* Switch styling */
+    .switch {
+      display: flex;
+      align-items: center;
+      margin: 8px 0;
+    }
+    .switch label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .switch input {
+      display: none;
+    }
+    .slider {
+      position: relative;
+      width: 40px;
+      height: 20px;
+      background-color: #ccc;
+      border-radius: 20px;
+      transition: background-color 0.3s;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 2px;
+      top: 2px;
+      background-color: white;
+      border-radius: 50%;
+      transition: transform 0.3s;
+    }
+    .switch input:checked + .slider {
+      background-color: #4CAF50;
+    }
+    .switch input:checked + .slider::before {
+      transform: translateX(20px);
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
- 
-<h2>
-🐮 Player Dashboard <span style="font-size:10px; font-weight:normal; margin-left:12px;"> (v 1.0.3) </span>
-</h2>
-
+    <h2>
+      🐮 Player Dashboard 
+      <span style="font-size:10px; font-weight:normal; margin-left:10px;">(v 1.0.5)</span>
+    </h2>
   </div>
 
   <div class="accordion">
@@ -63,7 +100,7 @@
       <p id="roomLabel"></p>
 
       <table id="playersTable">
-        <thead><tr><th>Player</th><th>👻</th><th>Status</th></tr></thead>
+        <thead><tr><th>Player</th><th>Out</th><th>Status</th></tr></thead>
         <tbody></tbody>
       </table>
 
@@ -78,6 +115,34 @@
         <textarea id="answerInput" rows="2" placeholder="Type your answer..."></textarea>
         <button id="submitAnswerBtn">Submit Answer</button>
         <p id="progress"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Control Switches Accordion -->
+  <div class="accordion">
+    <div class="accordion-header" onclick="toggleAccordion('controlsBox')">Control Switches:</div>
+    <div id="controlsBox" class="accordion-content">
+      <div class="switch">
+        <label>
+          <input type="checkbox" id="toggleStart" checked>
+          <span class="slider"></span>
+          Enable Start Round
+        </label>
+      </div>
+      <div class="switch">
+        <label>
+          <input type="checkbox" id="toggleShow" checked>
+          <span class="slider"></span>
+          Enable Show Answers
+        </label>
+      </div>
+      <div class="switch">
+        <label>
+          <input type="checkbox" id="toggleSubmit" checked>
+          <span class="slider"></span>
+          Enable Submit Answer
+        </label>
       </div>
     </div>
   </div>
@@ -103,9 +168,25 @@
     const startBtn=document.getElementById("startBtn");
     const showBtn=document.getElementById("showAnswersBtn");
     const statusMsg=document.getElementById("statusMessage");
+    const submitBtn=document.getElementById("submitAnswerBtn");
+    const inputBox=document.getElementById("answerInput");
 
     let allPlayers = new Set();
     let answersShown = false;
+
+    // Switch overrides
+    document.getElementById("toggleStart").addEventListener("change", e => {
+      if (!e.target.checked) startBtn.disabled = true;
+    });
+    document.getElementById("toggleShow").addEventListener("change", e => {
+      if (!e.target.checked) showBtn.disabled = true;
+    });
+    document.getElementById("toggleSubmit").addEventListener("change", e => {
+      if (!e.target.checked) {
+        submitBtn.disabled = true;
+        inputBox.disabled = true;
+      }
+    });
 
     socket.on("playerList", data => {
       const players = data.players || data;
@@ -129,7 +210,11 @@
 
     socket.on("roundStarted",({questionId,prompt,playerCount,roundNumber,myAnswer})=>{
       startBtn.disabled=true;
+      document.getElementById("toggleStart").checked = false; // sync switch
+
       showBtn.disabled=true;
+      document.getElementById("toggleShow").checked = false; // sync switch
+
       statusMsg.innerText="Round in progress…";
       document.getElementById("qaSection").style.display="block";
       openAccordion("questionBox");
@@ -139,19 +224,22 @@
       document.getElementById("progress").innerText=`Submitted: 0 / ${playerCount}`;
 
       if (answersShown || myAnswer) {
-        document.getElementById("submitAnswerBtn").disabled=true;
-        document.getElementById("answerInput").disabled=true;
-        document.getElementById("answerInput").value = myAnswer || "";
+        submitBtn.disabled=true;
+        inputBox.disabled=true;
+        document.getElementById("toggleSubmit").checked = false; // sync switch
+        inputBox.value = myAnswer || "";
       } else {
-        document.getElementById("submitAnswerBtn").disabled=false;
-        document.getElementById("answerInput").disabled=false;
-        document.getElementById("answerInput").value = "";
-        document.getElementById("submitAnswerBtn").onclick=()=>{
-          const answer=document.getElementById("answerInput").value.trim();
+        submitBtn.disabled=false;
+        inputBox.disabled=false;
+        document.getElementById("toggleSubmit").checked = true; // sync switch
+        inputBox.value = "";
+        submitBtn.onclick=()=>{
+          const answer=inputBox.value.trim();
           if(!answer) return;
           socket.emit("submitAnswer",{roomCode,name:myName,questionId,answer});
-          document.getElementById("submitAnswerBtn").disabled=true;
-          document.getElementById("answerInput").disabled=true;
+          submitBtn.disabled=true;
+          inputBox.disabled=true;
+          document.getElementById("toggleSubmit").checked = false; // sync switch
         };
       }
     });
@@ -160,7 +248,11 @@
       document.getElementById("progress").innerText=`Submitted: ${submittedCount} / ${totalPlayers}`;
     });
 
-    socket.on("allSubmitted",()=>{showBtn.disabled=false;});
+    socket.on("allSubmitted",()=>{
+      showBtn.disabled=false;
+      document.getElementById("toggleShow").checked = true; // sync switch
+    });
+
     showBtn.onclick=()=>{
       socket.emit("showAnswers",{roomCode});
       answersShown = true;
@@ -173,7 +265,9 @@
       openAccordion("answersTableWrapper");
       closeAccordion("questionBox");
       showBtn.disabled=true;
+      document.getElementById("toggleShow").checked = false; // sync switch
       startBtn.disabled=false;
+      document.getElementById("toggleStart").checked = true; // sync switch
       statusMsg.innerText="Round finished. You can start a new round.";
     });
 
@@ -182,15 +276,9 @@
       div.innerText=String(str||"");
       return div.innerHTML;
     }
-    function toggleAccordion(id){
-      document.getElementById(id).classList.toggle("open");
-    }
-    function openAccordion(id){
-      document.getElementById(id).classList.add("open");
-    }
-    function closeAccordion(id){
-      document.getElementById(id).classList.remove("open");
-    }
+    function toggleAccordion(id){document.getElementById(id).classList.toggle("open");}
+    function openAccordion(id){document.getElementById(id).classList.add("open");}
+    function closeAccordion(id){document.getElementById(id).classList.remove("open");}
   </script>
 </body>
 </html>
