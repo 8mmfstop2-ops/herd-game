@@ -5,37 +5,40 @@
   <title>Player Board — Udderly the Same</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { font-family:'Segoe UI',Arial,sans-serif; max-width:900px; margin:30px auto;
-           background:linear-gradient(135deg,#fdfcfb,#e2d1c3); padding:20px; border-radius:12px;
-           box-shadow:0 4px 12px rgba(0,0,0,0.1);}
-    .header {
-      display: flex;
-      align-items: center;   /* vertically center logo and text */
-      gap: 12px;             /* small horizontal space between logo and heading */
-      margin-bottom: 20px;   /* space below the header bar */
+    body {
+      font-family:'Segoe UI',Arial,sans-serif;
+      max-width:900px;
+      margin:30px auto;
+      background:linear-gradient(135deg,#fdfcfb,#e2d1c3);
+      padding:20px;
+      border-radius:12px;
+      box-shadow:0 4px 12px rgba(0,0,0,0.1);
     }
-    .logo {
-      max-width: 100px;      /* logo size */
-      height: auto;
-      display: block;
+    .header { display:flex; align-items:center; gap:12px; margin-bottom:20px;}
+    .logo { max-width:100px; height:auto; display:block;}
+    h2 { margin:0;}
+    #statusMessage { font-weight:bold; margin-top:10px; text-align:center; color:#444;}
+    button {
+      padding:10px 18px; margin:6px; font-size:16px; border:none; border-radius:8px;
+      cursor:pointer; background:#333; color:#fff; transition:background 0.3s ease;
     }
-    h2 { margin:0; }         /* remove default margin so it aligns with logo */
-    #statusMessage { font-weight:bold; margin-top:10px; text-align:center; color:#444; }
-    button { padding:10px 18px; margin:6px; font-size:16px; border:none; border-radius:8px;
-             cursor:pointer; background:#333; color:#fff; transition:background 0.3s ease;}
-    button:hover:enabled { background:#F7AC4D; }
-    button:disabled { background:#999; cursor:not-allowed; }
-    .accordion { margin-top:20px; border-radius:8px; overflow:hidden;
-                 box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+    button:hover:enabled { background:#F7AC4D;}
+    button:disabled { background:#999; cursor:not-allowed;}
+    .accordion { margin-top:20px; border-radius:8px; overflow:hidden; box-shadow:0 2px 6px rgba(0,0,0,0.1);}
     .accordion-header { background:#333; color:#fff; padding:12px; cursor:pointer; font-weight:bold;}
-    .accordion-header:hover { background:#F7AC4D; }
-    .accordion-content { max-height:0; overflow:hidden; transition:max-height 0.4s ease;
-                         background:#fff; padding:0 15px;}
+    .accordion-header:hover { background:#F7AC4D;}
+    .accordion-content { max-height:0; overflow:hidden; transition:max-height 0.4s ease; background:#fff; padding:0 15px;}
     .accordion-content.open { padding:15px; max-height:1000px;}
-    #answersTable { font-size:18px; border-collapse:collapse; width:100%; margin-top:10px;}
-    #answersTable th,#answersTable td { border-bottom:1px solid #ccc; padding:8px; text-align:left;}
-    textarea { width:100%; max-width:800px; padding:10px; border-radius:6px; border:1px solid #ccc;
-               margin-bottom:10px; font-size:16px;}
+    #answersTable, #playersTable {
+      font-size:18px; border-collapse:collapse; width:100%; margin-top:10px;
+    }
+    #answersTable th,#answersTable td, #playersTable th,#playersTable td {
+      border-bottom:1px solid #ccc; padding:8px; text-align:left;
+    }
+    textarea {
+      width:100%; max-width:800px; padding:10px; border-radius:6px;
+      border:1px solid #ccc; margin-bottom:10px; font-size:16px;
+    }
   </style>
 </head>
 <body>
@@ -50,6 +53,12 @@
     <div class="accordion-header" onclick="toggleAccordion('questionBox')">Game Room Info:</div>
     <div id="questionBox" class="accordion-content open">
       <p id="roomLabel"></p>
+
+      <!-- Players table with ghost column -->
+      <table id="playersTable">
+        <thead><tr><th></th><th>Player</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
 
       <div id="controls">
         <button id="startBtn">Start Round</button>
@@ -89,6 +98,21 @@
     const startBtn=document.getElementById("startBtn");
     const showBtn=document.getElementById("showAnswersBtn");
     const statusMsg=document.getElementById("statusMessage");
+
+    // Track all players who ever joined
+    let allPlayers = new Set();
+
+    socket.on("playerList", players => {
+      players.forEach(p => allPlayers.add(p.name));
+      document.querySelector("#playersTable tbody").innerHTML = Array.from(allPlayers)
+        .map(name => {
+          const active = players.find(p => p.name === name);
+          const ghost = active ? "" : "👻";
+          const submitted = active ? (active.submitted ? "✅ Submitted" : "⌛ Waiting") : "";
+          return `<tr><td>${ghost}</td><td>${escapeHTML(name)}</td><td>${submitted}</td></tr>`;
+        })
+        .join("");
+    });
 
     startBtn.onclick=()=>{socket.emit("startRound",{roomCode});};
 
