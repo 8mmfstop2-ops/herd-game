@@ -1,3 +1,5 @@
+// v1.0.2
+
 const express = require("express");
 const http = require("http");
 const path = require("path");
@@ -63,90 +65,7 @@ const pool = new Pool({
   `);
 })();
 
-// ---------------- Admin Login API ----------------
-app.post("/api/admin/login", (req, res) => {
-  const { username, password } = req.body;
-  const ADMIN_USER = process.env.ADMIN_USER || "game-admin";
-  const ADMIN_PASS = process.env.ADMIN_PASS || "Rainbow6GoldenEye";
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
-    return res.json({ success: true });
-  }
-  res.status(401).json({ error: "Invalid credentials" });
-});
-
-// ---------------- Room Management APIs ----------------
-app.get("/api/rooms", async (_req, res) => {
-  const r = await pool.query("SELECT code, status, created_at FROM rooms ORDER BY id DESC");
-  res.json(r.rows);
-});
-app.post("/api/rooms", async (req, res) => {
-  const { code, status } = req.body;
-  if (!code) return res.status(400).json({ error: "Room code required" });
-  try {
-    await pool.query("INSERT INTO rooms (code, status) VALUES ($1,$2)", [code.toUpperCase(), status || "open"]);
-    res.json({ success: true });
-  } catch {
-    res.status(400).json({ error: "Room already exists" });
-  }
-});
-app.patch("/api/rooms/:code", async (req, res) => {
-  const { status } = req.body;
-  const code = req.params.code.toUpperCase();
-  const r = await pool.query("UPDATE rooms SET status=$1 WHERE code=$2 RETURNING code,status", [status, code]);
-  if (r.rowCount === 0) return res.status(404).json({ error: "Room not found" });
-  res.json(r.rows[0]);
-});
-
-// ---------------- Question Management APIs ----------------
-app.get("/api/questions", async (_req, res) => {
-  const r = await pool.query("SELECT id, prompt, sort_number FROM questions ORDER BY id DESC");
-  res.json(r.rows);
-});
-app.post("/api/questions", async (req, res) => {
-  const { text } = req.body;
-  if (!text) return res.status(400).json({ error: "Prompt required" });
-  const r = await pool.query(
-    "INSERT INTO questions (prompt) VALUES ($1) RETURNING id, prompt",
-    [text.trim()]
-  );
-  const newId = r.rows[0].id;
-  await pool.query("UPDATE questions SET sort_number = $1 WHERE id = $1", [newId]);
-  res.json({ id: newId, prompt: r.rows[0].prompt, sort_number: newId });
-});
-app.put("/api/questions/:id", async (req, res) => {
-  const { text } = req.body;
-  const id = parseInt(req.params.id, 10);
-  if (!text) return res.status(400).json({ error: "Prompt required" });
-  const r = await pool.query(
-    "UPDATE questions SET prompt=$1 WHERE id=$2 RETURNING id, prompt, sort_number",
-    [text.trim(), id]
-  );
-  if (r.rowCount === 0) return res.status(404).json({ error: "Question not found" });
-  res.json(r.rows[0]);
-});
-app.delete("/api/questions/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const r = await pool.query("DELETE FROM questions WHERE id=$1 RETURNING id", [id]);
-  if (r.rowCount === 0) return res.status(404).json({ error: "Question not found" });
-  res.json({ success: true });
-});
-
-// ---------------- Player Join API ----------------
-app.post("/api/player/join", async (req, res) => {
-  const { name, roomCode } = req.body;
-  const rc = roomCode.toUpperCase();
-  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
-  if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
-  if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
-
-  await pool.query(
-    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
-    [name, rc]
-  );
-  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
-});
-
-// ---------------- Helpers for active stats and player list ----------------
+// ---------------- Helpers ----------------
 function getActiveNames(roomCode) {
   const connected = io.sockets.adapter.rooms.get(roomCode) || new Set();
   const activeNames = [];
@@ -188,10 +107,8 @@ async function emitPlayerList(roomCode) {
 io.on("connection", (socket) => {
   socket.on("joinLobby", async ({ roomCode, name }) => {
     const rc = roomCode.toUpperCase();
-    // Track identity on the socket for accurate "active" detection
     socket.data.name = name;
     socket.data.roomCode = rc;
-
     socket.join(rc);
 
     await pool.query(
@@ -208,14 +125,25 @@ io.on("connection", (socket) => {
         "SELECT answer FROM answers WHERE room_code=$1 AND LOWER(player_name)=LOWER($2) AND question_id=$3 AND round_number=$4",
         [rc, name, room.rows[0].active_question_id, room.rows[0].current_round]
       );
-      const { activeCount } = await getActiveStats(rc);
+      const { activeCount, submittedActiveCount } = await getActiveStats(rc);
+
       socket.emit("roundStarted", {
         questionId: room.rows[0].active_question_id,
         prompt: q.rows[0].prompt,
-        playerCount: activeCount, // use active players only
+        playerCount: activeCount,
         roundNumber: room.rows[0].current_round,
         myAnswer: ans.rows.length ? ans.rows[0].answer : null
       });
+
+      // 👇 Broadcast current submission progress to everyone
+      io.to(rc).emit("submissionProgress", {
+        submittedCount: submittedActiveCount,
+        totalPlayers: activeCount
+      });
+
+      if (activeCount > 0 && submittedActiveCount === activeCount) {
+        io.to(rc).emit("allSubmitted");
+      }
     }
   });
 
@@ -255,9 +183,11 @@ io.on("connection", (socket) => {
 
     await emitPlayerList(rc);
 
-    // Use ACTIVE counts for progress and completion
     const { activeCount, submittedActiveCount } = await getActiveStats(rc);
-    io.to(rc).emit("submissionProgress", { submittedCount: submittedActiveCount, totalPlayers: activeCount });
+    io.to(rc).emit("submissionProgress", {
+      submittedCount: submittedActiveCount,
+      totalPlayers: activeCount
+    });
 
     if (activeCount > 0 && submittedActiveCount === activeCount) {
       io.to(rc).emit("allSubmitted");
@@ -277,7 +207,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", async () => {
-    // Refresh player list for any rooms this socket is part of
     const r = socket.data?.roomCode;
     if (r) {
       await emitPlayerList(r);
