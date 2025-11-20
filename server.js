@@ -79,24 +79,16 @@ app.get("/api/rooms", async (_req, res) => {
   const r = await pool.query("SELECT code, status, created_at FROM rooms ORDER BY id DESC");
   res.json(r.rows);
 });
-
-app.post("/api/player/join", async (req, res) => {
-  const { name, roomCode } = req.body;
-  const rc = roomCode.toUpperCase();
-  const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
-  if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
-  if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
-
-  // handle mix case names part 1
-  await pool.query(
-    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
-    [name, rc]
-  );
-
-  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
+app.post("/api/rooms", async (req, res) => {
+  const { code, status } = req.body;
+  if (!code) return res.status(400).json({ error: "Room code required" });
+  try {
+    await pool.query("INSERT INTO rooms (code, status) VALUES ($1,$2)", [code.toUpperCase(), status || "open"]);
+    res.json({ success: true });
+  } catch {
+    res.status(400).json({ error: "Room already exists" });
+  }
 });
-
-
 app.patch("/api/rooms/:code", async (req, res) => {
   const { status } = req.body;
   const code = req.params.code.toUpperCase();
@@ -148,7 +140,7 @@ app.post("/api/player/join", async (req, res) => {
   if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
 
   await pool.query(
-    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT ON CONSTRAINT players_name_room_unique DO NOTHING",
+    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
     [name, rc]
   );
   res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
@@ -160,11 +152,11 @@ io.on("connection", (socket) => {
     const rc = roomCode.toUpperCase();
     socket.join(rc);
 
-    // handle mixed case nmames part 2
     await pool.query(
       "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
       [name, rc]
     );
+
     await emitPlayerList(rc);
 
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
@@ -197,6 +189,7 @@ io.on("connection", (socket) => {
     await emitPlayerList(rc);
 
     const roundNum = (await pool.query("SELECT current_round FROM rooms WHERE code=$1", [rc])).rows[0].current_round;
+
     io.to(rc).emit("roundStarted", {
       questionId: qid,
       prompt: q.rows[0].prompt,
@@ -239,6 +232,15 @@ io.on("connection", (socket) => {
     );
     io.to(rc).emit("answersRevealed", rr.rows);
   });
+
+  socket.on("disconnect", async () => {
+    // When a socket disconnects, update player list for all rooms
+    for (const [roomCode] of socket.rooms) {
+      if (roomCode !== socket.id) {
+        await emitPlayerList(roomCode);
+      }
+    }
+  });
 }); // <-- closes io.on("connection")
 
 // ---------------- Helper to emit full player list ----------------
@@ -263,10 +265,16 @@ async function emitPlayerList(roomCode) {
     active: activeNames.includes(p.name)
   }));
 
-  io.to(roomCode).emit("playerList", merged);
+  const activeCount = merged.filter(p => p.active).length;
+  const submittedCount = merged.filter(p => p.active && p.submitted).length;
+
+  io.to(roomCode).emit("playerList", {
+    players: merged,
+    activeCount,
+    submittedCount
+  });
 }
 
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
-
