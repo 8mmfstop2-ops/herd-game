@@ -1,4 +1,4 @@
-// v1.1.2
+// v1.1.2f
 
 const express = require("express"); 
 const http = require("http");
@@ -327,6 +327,17 @@ io.on("connection", (socket) => {
     await emitScoreboard(rc);
   });
 
+  // End Game / Close Room handler
+  socket.on("closeRoom", async ({ roomCode }) => {
+    const rc = roomCode.toUpperCase();
+    // Mark room closed in DB
+    await pool.query("UPDATE rooms SET closed=true WHERE code=$1", [rc]);
+
+    // Notify all clients in this room
+    io.to(rc).emit("roomClosed");
+  });
+
+  
   socket.on("disconnect", async () => {
     const r = socket.data?.roomCode;
     if (r) {
@@ -338,4 +349,5 @@ io.on("connection", (socket) => {
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
 
