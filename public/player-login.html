@@ -105,30 +105,61 @@
 
     .pointLabel { margin-left: 8px; font-weight: bold; }
     .pointLabel.green { color: #2e7d32; }
-    .pointLabel.blue  { color: #0d47a1; text-shadow: 0 0 2px #fff; }
 
-    #answersTable .slider {
-      width: 80px;
-      height: 32px;
-      background-color: #90caf9;
-      border-radius: 32px;
-      transition: background-color 0.3s;
-    }
-    #answersTable .slider::before {
-      width: 28px;
-      height: 28px;
-      left: 2px;
-      top: 2px;
-      background-color: white;
-      border-radius: 50%;
-      transition: transform 0.3s, background-color 0.3s;
-    }
-    #answersTable .switch input:checked + .slider {
-      background-color: #66bb6a;
-    }
-    #answersTable .switch input:checked + .slider::before {
-      transform: translateX(48px);
-    }
+#scoreTable th, #scoreTable td { padding: 6px; }
+#scoreTable th:first-child, #scoreTable td:first-child {
+  text-align: left;
+  padding-left: 10px;
+}
+#scoreTable th:nth-child(2), #scoreTable td:nth-child(2) {
+  text-align: center;
+  width: 60px;
+}
+#scoreTable th:nth-child(n+3), #scoreTable td.roundCell {
+  text-align: center;
+  width: 35px;
+}
+.scoreSelect { width: 100%; text-align: center; }
+
+.pointLabel { margin-left: 8px; font-weight: bold; }
+.pointLabel.green { color: #2e7d32; }
+.pointLabel.blue  { color: #0d47a1; text-shadow: 0 0 2px #fff; }
+
+/* --- Answers table pill toggle --- */
+#answersTable .slider {
+  width: 80px;
+  height: 32px;
+  background-color: #ddd;       /* neutral gray when off */
+  border: 2px solid #aaa;       /* outline so it's visible */
+  border-radius: 32px;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+#answersTable .slider::before {
+  content: "";
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  left: 2px;
+  top: 2px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.3s, background-color 0.3s;
+}
+#answersTable .switch input:checked + .slider {
+  background-color: #66bb6a;    /* green when on */
+  border-color: #66bb6a;
+}
+#answersTable .switch input:checked + .slider::before {
+  transform: translateX(48px);
+}
+
+/* hover hint to show it's clickable */
+#answersTable .slider:hover {
+  background-color: #bbb;
+  cursor: pointer;
+}
+
+	
 
     /* Popup overlay */
     .popup {
@@ -542,3 +573,4 @@
   </script>
 </body>
 </html>
+
