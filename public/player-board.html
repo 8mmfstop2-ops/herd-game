@@ -309,15 +309,32 @@
 	
 	// Listen for server confirmation
 	socket.on("roomClosed", () => {
-	  roomIsClosed = true; // mark closed
+	  roomIsClosed = true;
 	  statusMsg.innerText = "This game room has been closed.";
+	
+	  // Disable all controls
 	  startBtn.disabled = true;
 	  showBtn.disabled = true;
 	  showQuestionBtn.disabled = true;
 	  submitBtn.disabled = true;
 	  inputBox.disabled = true;
 	  endGameBtn.disabled = true;
+	
+	  // Show a "Game Over" badge/message
+	  const badge = document.createElement("div");
+	  badge.innerText = "🎮 Game Over";
+	  badge.style.backgroundColor = "#d32f2f";   // red
+	  badge.style.color = "white";
+	  badge.style.fontWeight = "bold";
+	  badge.style.padding = "10px 20px";
+	  badge.style.marginTop = "20px";
+	  badge.style.borderRadius = "8px";
+	  badge.style.display = "inline-block";
+	  badge.style.fontSize = "18px";
+	
+	  document.body.appendChild(badge);
 	});
+
 
 
     let allPlayers = new Set();
@@ -581,4 +598,5 @@
   </script>
 </body>
 </html>
+
 
