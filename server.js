@@ -339,10 +339,10 @@ socket.on("showAnswers", async ({ roomCode }) => {
 
   // reveal answers
   const rr = await pool.query(
-    "SELECT player_name AS name, answer
+    `SELECT player_name AS name, answer
      FROM answers
      WHERE room_code=$1 AND question_id=$2 AND round_number=$3
-     ORDER BY name ASC",
+     ORDER BY name ASC`,
     [rc, room.rows[0].active_question_id, room.rows[0].current_round]
   );
   io.to(rc).emit("answersRevealed", rr.rows);
@@ -389,5 +389,6 @@ socket.on("showAnswers", async ({ roomCode }) => {
 /* --- Start server --- */
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
 
 
