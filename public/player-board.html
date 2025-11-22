@@ -394,6 +394,12 @@
 		socket.emit("closeRoom", { roomCode });
 	  }
 	};
+
+  // Handler to redirect on sign out
+  signOutBtn.addEventListener("click", () => {
+    window.location.href = "index.html";
+  });
+
 	  
 	let roomIsClosed = false; // global flag
 	
@@ -677,6 +683,7 @@
   </script>
 </body>
 </html>
+
 
 
 
