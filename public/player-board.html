@@ -159,6 +159,19 @@
   cursor: pointer;
 }
 
+#gameOverBadge {
+  margin-left: 10px;          /* spacing from End Game button */
+  background-color: #d32f2f;  /* red */
+  color: white;
+  font-weight: bold;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.hidden {
+  display: none;
+}
 	
 
     /* Popup overlay */
@@ -207,11 +220,12 @@
 </head>
 <body>
 
-	<div class="header">
-	  <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
-	  <h2>🐮 Player Dashboard <span class="small">(v 1.1.2f)</span></h2>
-	  <button id="endGameBtn" style="margin-left:auto;">End Game</button>
-	</div>
+<div class="header">
+  <img src="udder-consensus-logo.png" alt="Udderly the Same Logo" class="logo">
+  <h2>🐮 Player Dashboard <span class="small">(v 1.1.3)</span></h2>
+  <button id="endGameBtn" style="margin-left:auto;">End Game</button>
+  <span id="gameOverBadge" class="hidden">🎮 Game Over</span>
+</div>
 
 
   <div class="accordion">
@@ -320,19 +334,8 @@
 	  inputBox.disabled = true;
 	  endGameBtn.disabled = true;
 	
-	  // Show a "Game Over" badge/message
-	  const badge = document.createElement("div");
-	  badge.innerText = "🎮 Game Over";
-	  badge.style.backgroundColor = "#d32f2f";   // red
-	  badge.style.color = "white";
-	  badge.style.fontWeight = "bold";
-	  badge.style.padding = "10px 20px";
-	  badge.style.marginTop = "20px";
-	  badge.style.borderRadius = "8px";
-	  badge.style.display = "inline-block";
-	  badge.style.fontSize = "18px";
-	
-	  document.body.appendChild(badge);
+	  // Show the badge inline next to End Game
+	  document.getElementById("gameOverBadge").classList.remove("hidden");
 	});
 
 
@@ -598,5 +601,6 @@
   </script>
 </body>
 </html>
+
 
 
