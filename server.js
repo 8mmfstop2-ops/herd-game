@@ -1,4 +1,5 @@
 // v1.1.2f
+// Did not include: Server-side (block actions if closed)
 
 const express = require("express"); 
 const http = require("http");
@@ -349,6 +350,7 @@ io.on("connection", (socket) => {
 // ---------------- Start Server ----------------
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
 
 
 
