@@ -160,19 +160,20 @@
 }
 
 #gameOverBanner {
-  width: 100%;                /* full width, same as header */
-  background-color: #d32f2f;   /* red banner */
+  width: 100%;
+  background-color: #d32f2f;
   color: white;
   font-weight: bold;
   text-align: center;
-  padding: 20px;               /* taller than header */
-  font-size: 20px;
+  padding: 25px;               /* slightly more padding */
+  font-size: 22px;             /* slightly larger text */
+  margin: 10px 0;              /* spacing above and below */
 }
 
 .hidden {
-  display: none;
+  display: none;              /* only hides when class is present */
 }
-
+	
 
     /* Popup overlay */
     .popup {
@@ -226,6 +227,7 @@
   <button id="endGameBtn" style="margin-left:auto;">End Game</button>
 </div>
 
+<!-- Banner sits here, between header and accordion -->
 <div id="gameOverBanner" class="hidden">🎮 Game Over</div>
 
   <div class="accordion">
@@ -601,6 +603,7 @@
   </script>
 </body>
 </html>
+
 
 
 
