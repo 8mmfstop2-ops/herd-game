@@ -83,6 +83,24 @@
     .switch input:checked + .slider { background-color: #2e7d32; }
     .switch input:checked + .slider::before { transform: translateX(32px); }
 
+    /* --- Control Panel Layout --- */
+    .controlsLayout {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    .leftColumn {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .rightColumn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
     /* --- Game Over Banner --- */
     #gameOverBanner {
       background-color: #d32f2f; color: white; font-weight: bold;
@@ -150,6 +168,7 @@
       <div class="rightColumn">
         <button id="signOutBtn">Sign Out</button>
       </div>
+	
     </div>
   </div>
 </div>
@@ -186,76 +205,90 @@
 
 <!-- --- Script --- -->
 <script>
-  /* --- Setup --- */
-  const urlParams = new URLSearchParams(window.location.search);
-  const roomCode = (urlParams.get("room") || "").toUpperCase();
-  const myName = urlParams.get("name") || "";
-  document.getElementById("roomLabel").innerText = `Room: ${roomCode} — You: ${myName}`;
   const socket = io();
-  socket.emit("joinLobby", { roomCode, name: myName });
+  const roomCode = new URLSearchParams(window.location.search).get("room");
 
-  /* --- DOM Elements --- */
+  // Accordion toggle
+  function toggleAccordion(id) {
+    const el = document.getElementById(id);
+    el.classList.toggle("open");
+  }
+
+  // Buttons
   const startBtn = document.getElementById("startBtn");
-  const showBtn = document.getElementById("showAnswersBtn");
   const showQuestionBtn = document.getElementById("showQuestionBtn");
-  const statusMsg = document.getElementById("statusMessage");
-  const submitBtn = document.getElementById("submitAnswerBtn");
-  const inputBox = document.getElementById("answerInput");
+  const showAnswersBtn = document.getElementById("showAnswersBtn");
+  const submitAnswerBtn = document.getElementById("submitAnswerBtn");
   const endGameBtn = document.getElementById("endGameBtn");
   const signOutBtn = document.getElementById("signOutBtn");
 
-  /* --- State --- */
-  let roomIsClosed = false;
-  let allPlayers = new Set();
-  let answersShown = false;
-  let currentRound = 0;
-  let scoreboard = [];
-  let pendingQuestion = null;
+  // Inputs
+  const answerInput = document.getElementById("answerInput");
+  const statusMessage = document.getElementById("statusMessage");
+  const questionPrompt = document.getElementById("popupQuestion");
+  const qaSection = document.getElementById("qaSection");
 
-  /* --- Controls --- */
-  endGameBtn.onclick = () => {
-    if (confirm("Are you sure you want to end this game?")) {
-      socket.emit("closeRoom", { roomCode });
-    }
+  // Event handlers
+  startBtn.onclick = () => socket.emit("startRound", { roomCode });
+  showQuestionBtn.onclick = () => socket.emit("showQuestion", { roomCode });
+  showAnswersBtn.onclick = () => socket.emit("showAnswers", { roomCode });
+  submitAnswerBtn.onclick = () => {
+    socket.emit("submitAnswer", { roomCode, answer: answerInput.value });
+    answerInput.value = "";
   };
-  signOutBtn.onclick = () => { window.location.href = "index.html"; };
-  startBtn.onclick = () => { socket.emit("startRound", { roomCode }); showQuestion(); };
-  showQuestionBtn.onclick = () => { showQuestion(); };
-  showBtn.onclick = () => { socket.emit("showAnswers", { roomCode }); answersShown = true; };
+  endGameBtn.onclick = () => socket.emit("endGame", { roomCode });
+  signOutBtn.onclick = () => window.location.href = "/";
 
-  /* --- Switch Overrides --- */
-  document.getElementById("toggleStart").onchange = e => { startBtn.disabled = roomIsClosed ? true : !e.target.checked; };
-  document.getElementById("toggleShow").onchange = e => { showBtn.disabled = !e.target.checked; };
-  document.getElementById("toggleSubmit").onchange = e => {
-    const on = e.target.checked; submitBtn.disabled = !on; inputBox.disabled = !on;
-  };
+  // Socket listeners
+  socket.on("roundStarted", () => {
+    startBtn.disabled = true;
+    showQuestionBtn.disabled = false;
+    showAnswersBtn.disabled = true;
+    statusMessage.textContent = "Round started.";
+  });
 
-  /* --- Server Events --- */
-  socket.on("roomClosed", () => {
-    roomIsClosed = true;
-    statusMsg.innerText = "This game room has been closed.";
-    startBtn.disabled = showBtn.disabled = showQuestionBtn.disabled = submitBtn.disabled = inputBox.disabled = endGameBtn.disabled = true;
-    document.getElementById("gameOverBanner").classList.remove("hidden");
+  socket.on("questionShown", ({ prompt }) => {
+    questionPrompt.textContent = prompt;
+    qaSection.style.display = "block";
+    showAnswersBtn.disabled = false;
+    statusMessage.textContent = "Question displayed.";
+  });
+
+  socket.on("answersRevealed", (answers) => {
+    const tbody = document.querySelector("#answersTable tbody");
+    tbody.innerHTML = answers.map(a =>
+      `<tr><td></td><td>${a.name}</td><td>${a.answer}</td></tr>`
+    ).join("");
+    document.getElementById("answersAccordion").style.display = "block";
+    statusMessage.textContent = "Answers revealed.";
+  });
+
+  socket.on("scoreboardUpdated", (scores) => {
+    const tbody = document.querySelector("#scoreTable tbody");
+    tbody.innerHTML = scores.map(s =>
+      `<tr><td>${s.player_name}</td><td>${s.total}</td></tr>`
+    ).join("");
   });
 
   socket.on("roundClosed", () => {
-    document.getElementById("qaSection").style.display = "none";
-    statusMsg.innerText = "Round finished. Waiting for next round…";
-    submitBtn.disabled = true;
-    inputBox.disabled = true;
-    document.getElementById("toggleSubmit").checked = false;
     startBtn.disabled = false;
-    document.getElementById("toggleStart").checked = true;
-    showBtn.disabled = true;
-    document.getElementById("toggleShow").checked = false;
+    showQuestionBtn.disabled = true;
+    showAnswersBtn.disabled = true;
+    qaSection.style.display = "none";
+    statusMessage.textContent = "Round closed. Ready for next round.";
   });
 
-  /* --- Helpers --- */
-  function toggleAccordion(id){ document.getElementById(id).classList.toggle("open"); }
-  function openAccordion(id){ document.getElementById(id).classList.add("open"); }
-  function closeAccordion(id){ document.getElementById(id).classList.remove("open"); }
+  socket.on("gameOver", () => {
+    document.getElementById("gameOverBanner").classList.remove("hidden");
+    statusMessage.textContent = "Game over.";
+  });
+
+  // Popup close
+  document.getElementById("closePopup").onclick = () => {
+    document.getElementById("roundPopup").style.display = "none";
+  };
 </script>
 </body>
 </html>
-
-
+	
+	
