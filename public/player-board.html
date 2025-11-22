@@ -304,9 +304,12 @@
 		socket.emit("closeRoom", { roomCode });
 	  }
 	};
-
+	  
+	let roomIsClosed = false; // global flag
+	
 	// Listen for server confirmation
 	socket.on("roomClosed", () => {
+	  roomIsClosed = true; // mark closed
 	  statusMsg.innerText = "This game room has been closed.";
 	  startBtn.disabled = true;
 	  showBtn.disabled = true;
@@ -314,19 +317,24 @@
 	  submitBtn.disabled = true;
 	  inputBox.disabled = true;
 	  endGameBtn.disabled = true;
-	});	
-	
-	
+	});
+
 
     let allPlayers = new Set();
     let answersShown = false;
     let currentRound = 0;
     let scoreboard = [];
 
-    // Switch overrides
-    document.getElementById("toggleStart").addEventListener("change", e => {
-      startBtn.disabled = !e.target.checked;
-    });
+	// Switch overrides
+	document.getElementById("toggleStart").addEventListener("change", e => {
+	  // Only allow enabling if the room is still open
+	  if (!roomIsClosed) {
+	    startBtn.disabled = !e.target.checked;
+	  } else {
+	    startBtn.disabled = true; // force disabled if closed
+	  }
+	});
+	  
     document.getElementById("toggleShow").addEventListener("change", e => {
       showBtn.disabled = !e.target.checked;
     });
@@ -573,3 +581,4 @@
   </script>
 </body>
 </html>
+
