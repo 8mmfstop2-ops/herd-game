@@ -1,7 +1,9 @@
-// v1.1.2f
 // Did not include: Server-side (block actions if closed)
 
-const express = require("express"); 
+// v1.1.3 — Udderly the Same, Game Server
+
+/* --- Imports and setup --- */
+const express = require("express");
 const http = require("http");
 const path = require("path");
 const bodyParser = require("body-parser");
@@ -15,12 +17,13 @@ const io = new Server(server);
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+/* --- Database connection --- */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-// ---------------- Initialize tables ----------------
+/* --- Initialize tables --- */
 (async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS rooms (
     id SERIAL PRIMARY KEY,
@@ -38,6 +41,8 @@ const pool = new Pool({
     submitted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );`);
+
+  // enforce uniqueness case-insensitively
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS players_name_room_unique
     ON players (LOWER(name), room_code);`);
 
@@ -58,7 +63,6 @@ const pool = new Pool({
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   );`);
 
-  // New persistent scoring table
   await pool.query(`CREATE TABLE IF NOT EXISTS scores (
     id SERIAL PRIMARY KEY,
     room_code TEXT NOT NULL,
@@ -70,7 +74,7 @@ const pool = new Pool({
   );`);
 })();
 
-// ---------------- Admin Login API ----------------
+/* --- Admin login API --- */
 app.post("/api/admin/login", (req, res) => {
   const { username, password } = req.body;
   const ADMIN_USER = process.env.ADMIN_USER || "game-admin";
@@ -81,7 +85,7 @@ app.post("/api/admin/login", (req, res) => {
   res.status(401).json({ error: "Invalid credentials" });
 });
 
-// ---------------- Room Management APIs ----------------
+/* --- Room management APIs --- */
 app.get("/api/rooms", async (_req, res) => {
   const r = await pool.query("SELECT code, status, created_at FROM rooms ORDER BY id DESC");
   res.json(r.rows);
@@ -104,7 +108,7 @@ app.patch("/api/rooms/:code", async (req, res) => {
   res.json(r.rows[0]);
 });
 
-// ---------------- Question Management APIs ----------------
+/* --- Question management APIs --- */
 app.get("/api/questions", async (_req, res) => {
   const r = await pool.query("SELECT id, prompt, sort_number FROM questions ORDER BY id DESC");
   res.json(r.rows);
@@ -132,8 +136,7 @@ app.delete("/api/questions/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-
-// ---------------- Player Join API ----------------
+/* --- Player join API --- */
 app.post("/api/player/join", async (req, res) => {
   const { name, roomCode } = req.body;
   const rc = roomCode.toUpperCase();
@@ -141,23 +144,24 @@ app.post("/api/player/join", async (req, res) => {
   if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
   if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
 
-  await pool.query(
-    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
-    [name, rc]
-  );
+  const normalizedName = name.trim().toLowerCase();
+  const existing = await pool.query("SELECT 1 FROM players WHERE LOWER(name)=$1 AND room_code=$2", [normalizedName, rc]);
+  if (existing.rows.length > 0) {
+    return res.status(400).json({ error: "Name already taken in this room" });
+  }
 
-  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name)}` });
+  await pool.query("INSERT INTO players (name, room_code) VALUES ($1,$2)", [name.trim(), rc]);
+  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name.trim())}` });
 });
 
-
-// ---------------- Helpers ----------------
+/* --- Helpers --- */
 function getActiveNames(roomCode) {
   const connected = io.sockets.adapter.rooms.get(roomCode) || new Set();
   const activeNames = [];
   for (const socketId of connected) {
     const s = io.sockets.sockets.get(socketId);
     if (s && s.data && s.data.name) {
-      activeNames.push(s.data.name);
+      activeNames.push(s.data.name.toLowerCase()); // normalize
     }
   }
   return activeNames;
@@ -167,9 +171,9 @@ async function getActiveStats(roomCode) {
   const dbPlayers = await pool.query("SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC", [roomCode]);
   const activeNames = getActiveNames(roomCode);
   const merged = dbPlayers.rows.map(p => ({
-    name: p.name,
+    name: p.name, // display name
     submitted: p.submitted,
-    active: activeNames.includes(p.name)
+    active: activeNames.includes(p.name.toLowerCase())
   }));
   const activeCount = merged.filter(p => p.active).length;
   const submittedActiveCount = merged.filter(p => p.active && p.submitted).length;
@@ -187,7 +191,7 @@ async function getScoreboard(roomCode) {
      ORDER BY player_name`,
     [roomCode]
   );
-  return r.rows; // [{player_name, total, rounds:{round:points,...}}]
+  return r.rows;
 }
 
 async function emitPlayerList(roomCode) {
@@ -197,7 +201,6 @@ async function emitPlayerList(roomCode) {
     activeCount,
     submittedCount: submittedActiveCount
   });
-  // Keep progress synced on join/leave/submit
   io.to(roomCode).emit("submissionProgress", {
     submittedCount: submittedActiveCount,
     totalPlayers: activeCount
@@ -209,28 +212,43 @@ async function emitScoreboard(roomCode) {
   io.to(roomCode).emit("scoreboardUpdated", scoreboard);
 }
 
-// ---------------- Socket.IO Game Logic ----------------
+
+/* --- Socket.IO game logic --- */
 io.on("connection", (socket) => {
+  /* --- Player joins lobby --- */
   socket.on("joinLobby", async ({ roomCode, name }) => {
     const rc = roomCode.toUpperCase();
-    socket.data.name = name;
+    const normalizedName = name.trim().toLowerCase();
+
+    // Save normalized name for comparisons, keep original for display
+    socket.data.name = normalizedName;
+    socket.data.displayName = name.trim();
     socket.data.roomCode = rc;
     socket.join(rc);
 
-    await pool.query(
-      "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
-      [name, rc]
+    // Reject if name already taken (case-insensitive)
+    const existing = await pool.query(
+      "SELECT 1 FROM players WHERE LOWER(name)=$1 AND room_code=$2",
+      [normalizedName, rc]
     );
+    if (existing.rows.length > 0) {
+      socket.emit("loginError", "Name already taken in this room.");
+      return;
+    }
+
+    // Insert with original display name
+    await pool.query("INSERT INTO players (name, room_code) VALUES ($1,$2)", [socket.data.displayName, rc]);
 
     await emitPlayerList(rc);
     await emitScoreboard(rc);
 
+    // If a round is already active, send question + progress
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
     if (room.rows.length && room.rows[0].active_question_id) {
       const q = await pool.query("SELECT prompt FROM questions WHERE id=$1", [room.rows[0].active_question_id]);
       const ans = await pool.query(
         "SELECT answer FROM answers WHERE room_code=$1 AND LOWER(player_name)=LOWER($2) AND question_id=$3 AND round_number=$4",
-        [rc, name, room.rows[0].active_question_id, room.rows[0].current_round]
+        [rc, normalizedName, room.rows[0].active_question_id, room.rows[0].current_round]
       );
       const { activeCount, submittedActiveCount } = await getActiveStats(rc);
 
@@ -253,6 +271,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  /* --- Start round --- */
   socket.on("startRound", async ({ roomCode }) => {
     const rc = roomCode.toUpperCase();
     const qr = await pool.query("SELECT id FROM questions ORDER BY sort_number ASC");
@@ -276,16 +295,18 @@ io.on("connection", (socket) => {
     });
   });
 
+  /* --- Submit answer --- */
   socket.on("submitAnswer", async ({ roomCode, name, questionId, answer }) => {
     const rc = roomCode.toUpperCase();
+    const normalizedName = name.trim().toLowerCase();
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
     if (!room.rows.length || room.rows[0].active_question_id !== questionId) return;
 
     await pool.query(
       "INSERT INTO answers (room_code, player_name, question_id, round_number, answer) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
-      [rc, name, questionId, room.rows[0].current_round, answer]
+      [rc, name.trim(), questionId, room.rows[0].current_round, answer]
     );
-    await pool.query("UPDATE players SET submitted=true WHERE room_code=$1 AND LOWER(name)=LOWER($2)", [rc, name]);
+    await pool.query("UPDATE players SET submitted=true WHERE room_code=$1 AND LOWER(name)=LOWER($2)", [rc, normalizedName]);
 
     await emitPlayerList(rc);
 
@@ -300,6 +321,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  /* --- Show answers --- */
   socket.on("showAnswers", async ({ roomCode }) => {
     const rc = roomCode.toUpperCase();
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
@@ -311,11 +333,10 @@ io.on("connection", (socket) => {
     );
     io.to(rc).emit("answersRevealed", rr.rows);
 
-    // Also emit latest scoreboard so toggles can reflect prior points for this round
     await emitScoreboard(rc);
   });
 
-  // Award or update points for a player and round
+  /* --- Award points --- */
   socket.on("awardPoint", async ({ roomCode, playerName, roundNumber, points }) => {
     const rc = roomCode.toUpperCase();
     await pool.query(
@@ -328,17 +349,14 @@ io.on("connection", (socket) => {
     await emitScoreboard(rc);
   });
 
-  // End Game / Close Room handler
+  /* --- Close room --- */
   socket.on("closeRoom", async ({ roomCode }) => {
     const rc = roomCode.toUpperCase();
-    // Mark room closed in DB
     await pool.query("UPDATE rooms SET status='closed' WHERE code=$1", [rc]);
-
-    // Notify all clients in this room
     io.to(rc).emit("roomClosed");
   });
 
-  
+  /* --- Disconnect --- */
   socket.on("disconnect", async () => {
     const r = socket.data?.roomCode;
     if (r) {
@@ -347,10 +365,6 @@ io.on("connection", (socket) => {
   });
 });
 
-// ---------------- Start Server ----------------
+/* --- Start server --- */
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
-
-
-
-
