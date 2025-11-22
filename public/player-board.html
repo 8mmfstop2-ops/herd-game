@@ -47,8 +47,6 @@
     #answersTable th, #answersTable td,
     #playersTable th, #playersTable td,
     #scoreTable th, #scoreTable td { border-bottom: 1px solid #ccc; padding: 8px; }
-    #answersTable th:first-child, #answersTable td:first-child { width: 120px; text-align: center; }
-    #answersTable th:nth-child(2), #answersTable td:nth-child(2) { width: 200px; }
 
     /* --- Scoreboard specifics --- */
     #scoreTable th, #scoreTable td { padding: 6px; }
@@ -85,17 +83,6 @@
     .switch input:checked + .slider { background-color: #2e7d32; }
     .switch input:checked + .slider::before { transform: translateX(32px); }
 
-    /* --- Answers table pill toggle --- */
-    #answersTable .slider {
-      width: 80px; height: 32px; background-color: #ddd;
-      border: 2px solid #aaa; border-radius: 32px;
-      transition: background-color 0.3s, border-color 0.3s;
-    }
-    #answersTable .slider::before { width: 28px; height: 28px; left: 2px; top: 2px; }
-    #answersTable .switch input:checked + .slider { background-color: #66bb6a; border-color: #66bb6a; }
-    #answersTable .switch input:checked + .slider::before { transform: translateX(48px); }
-    #answersTable .slider:hover { background-color: #bbb; cursor: pointer; }
-
     /* --- Game Over Banner --- */
     #gameOverBanner {
       background-color: #d32f2f; color: white; font-weight: bold;
@@ -103,38 +90,6 @@
       margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
     .hidden { display: none; }
-
-    /* --- Control Panel Layout --- */
-    .controlsLayout { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
-    .leftColumn { display: flex; flex-direction: column; gap: 12px; }
-    .rightColumn { display: flex; align-items: center; justify-content: center; }
-    #signOutBtn {
-      padding: 12px 20px; font-size: 16px; border: none; border-radius: 8px;
-      background: #d32f2f; color: #fff; cursor: pointer; transition: background 0.3s ease;
-    }
-    #signOutBtn:hover { background: #b71c1c; }
-
-    /* --- Popup overlay --- */
-    .popup {
-      display: none; position: fixed; z-index: 1000;
-      left: 0; top: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
-      justify-content: center; align-items: center;
-    }
-    .popup-content {
-      background: #fff; border-radius: 16px; padding: 40px;
-      width: 80%; max-width: 700px; text-align: center;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-      animation: fadeIn 0.4s ease; position: relative;
-    }
-    .popup-content h1 { font-size: 2rem; color: #333; margin: 0; }
-    .close-btn {
-      position: absolute; top: 20px; right: 30px;
-      font-size: 32px; font-weight: bold; color: #333;
-      cursor: pointer; transition: color 0.3s;
-    }
-    .close-btn:hover { color: #F7AC4D; }
-    @keyframes fadeIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   </style>
 </head>
 <body>
@@ -283,223 +238,22 @@
     document.getElementById("gameOverBanner").classList.remove("hidden");
   });
 
-  socket.on("playerList", data => {
-    const players = data.players || data;
-    const activeCount = data.activeCount || players.filter(p => p.active).length;
-    const submittedCount = data.submittedCount || players.filter(p => p.active && p.submitted).length;
-    players.forEach(p => allPlayers.add(p.name));
-    document.querySelector("#playersTable tbody").innerHTML = Array.from(allPlayers).map(name => {
-      const player = players.find(p => p.name === name);
-      const ghost = player && player.active ? "" : "👻";
-      const submitted = player ? (player.submitted ? "✅ Submitted" : "⌛ Waiting") : "";
-      return `<tr><td>${escapeHTML(name)}</td><td>${ghost}</td><td>${submitted}</td></tr>`;
-    }).join("");
-    statusMsg.innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
-    document.getElementById("topStatus").innerText = `Active: ${activeCount} | Submitted: ${submittedCount}`;
-    if (document.getElementById("qaSection").style.display === "block") {
-      document.getElementById("progress").innerText = `Submitted: ${submittedCount} / ${activeCount}`;
-    }
-  });
-
-  socket.on("submissionProgress", ({ submittedCount, totalPlayers }) => {
-    document.getElementById("progress").innerText = `Submitted: ${submittedCount} / ${totalPlayers}`;
-    if (totalPlayers > 0 && submittedCount === totalPlayers) {
-      showBtn.disabled = false; document.getElementById("toggleShow").checked = true;
-    } else {
-      showBtn.disabled = true; document.getElementById("toggleShow").checked = false;
-    }
-  });
-
-  socket.on("roundStarted", ({ questionId, prompt, playerCount, roundNumber, myAnswer }) => {
-    currentRound = roundNumber; answersShown = false;
-    pendingQuestion = { questionId, prompt, playerCount, roundNumber, myAnswer };
-    startBtn.disabled = true; document.getElementById("toggleStart").checked = false;
-    showBtn.disabled = true; document.getElementById("toggleShow").checked = false;
-    statusMsg.innerText = "Round in progress…";
-    // Question is stored but not shown until Start/Show Question is clicked
-  });
-
-  socket.on("allSubmitted", () => { showBtn.disabled = false; document.getElementById("toggleShow").checked = true; });
-
-  /* --- Server: answers revealed --- */
-  socket.on("answersRevealed", rows => {
-    // Build a lookup of points already awarded for this round
-    const roundMap = toRoundMap(scoreboard, currentRound);
-	
-	// Render each answer row into the table body
-    document.querySelector("#answersTable tbody").innerHTML = rows.map(r => {
-      const name = escapeHTML(r.name), ans = escapeHTML(r.answer);
-      const checked = roundMap[name] === 1 ? "checked" : "";
-      const labelText = roundMap[name] === 1 ? "+1" : "0";
-      const labelClass = roundMap[name] === 1 ? "pointLabel green" : "pointLabel blue";
-	  
-	   // Return HTML for one row: toggle, name, answer
-      return `
-        <tr>
-          <td>
-            <label class="switch">
-              <input type="checkbox" class="scoreToggle" data-player="${name}" data-round="${currentRound}" ${checked}>
-              <span class="slider"></span>
-              <span class="${labelClass}">${labelText}</span>
-            </label>
-          </td>
-          <td>${name}</td>
-          <td>${ans}</td>
-        </tr>
-      `;
-    }).join("");
-
-    document.getElementById("answersAccordion").style.display = "block";
-    openAccordion("answersTableWrapper");
-    closeAccordion("questionBox");
-    showBtn.disabled = true;
-    document.getElementById("toggleShow").checked = false;
+  socket.on("roundClosed", () => {
+    document.getElementById("qaSection").style.display = "none";
+    statusMsg.innerText = "Round finished. Waiting for next round…";
+    submitBtn.disabled = true;
+    inputBox.disabled = true;
+    document.getElementById("toggleSubmit").checked = false;
     startBtn.disabled = false;
     document.getElementById("toggleStart").checked = true;
-    statusMsg.innerText = "Round finished. You can start a new round.";
+    showBtn.disabled = true;
+    document.getElementById("toggleShow").checked = false;
   });
-
-  /* --- Persist point toggles --- */
-  document.addEventListener("change", e => {
-    if (e.target.classList.contains("scoreToggle")) {
-      const player = e.target.dataset.player;
-      const round = parseInt(e.target.dataset.round, 10);
-      const points = e.target.checked ? 1 : 0;
-      socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
-
-      const labelSpan = e.target.closest("label").querySelector(".pointLabel");
-      if (labelSpan) {
-        labelSpan.textContent = points === 1 ? "+1" : "0";
-        labelSpan.className = points === 1 ? "pointLabel green" : "pointLabel blue";
-      }
-    }
-  });
-
-  /* --- Scoreboard updated --- */
-  socket.on("scoreboardUpdated", data => {
-    scoreboard = data || [];
-    renderScoreboard(scoreboard);
-
-    if (document.getElementById("answersAccordion").style.display === "block") {
-      const roundMap = toRoundMap(scoreboard, currentRound);
-      document.querySelectorAll(".scoreToggle").forEach(cb => {
-        const player = cb.dataset.player;
-        cb.checked = roundMap[player] === 1;
-        const labelSpan = cb.closest("label").querySelector(".pointLabel");
-        if (labelSpan) {
-          labelSpan.textContent = cb.checked ? "+1" : "0";
-          labelSpan.className = cb.checked ? "pointLabel green" : "pointLabel blue";
-        }
-      });
-    }
-  });
-
-  /* --- Render scoreboard --- */
-  function renderScoreboard(data) {
-    const allRounds = data.flatMap(d => Object.keys(d.rounds || {}).map(n => parseInt(n, 10)));
-    const maxRound = Math.max(0, ...allRounds);
-
-    const header = "<tr><th>Player</th><th>Total</th>" +
-      Array.from({length: maxRound}, (_, i) => `<th>#${i+1}</th>`).join("") +
-      "</tr>";
-    document.querySelector("#scoreTable thead").innerHTML = header;
-
-    const rows = data.map(d => {
-      const total = d.total || 0;
-      const roundCells = Array.from({length: maxRound}, (_, i) => {
-        const rnum = i + 1;
-        const val = (d.rounds && d.rounds[rnum]) != null ? d.rounds[rnum] : 0;
-        return `
-          <td class="roundCell">
-            <select data-player="${escapeHTML(d.player_name)}" data-round="${rnum}" class="scoreSelect">
-              <option value="0" ${val == 0 ? "selected" : ""}>0</option>
-              <option value="1" ${val == 1 ? "selected" : ""}>1</option>
-            </select>
-          </td>
-        `;
-      }).join("");
-      return `<tr><td>${escapeHTML(d.player_name)}</td><td>${total}</td>${roundCells}</tr>`;
-    }).join("");
-
-    document.querySelector("#scoreTable tbody").innerHTML = rows;
-
-    // Auto-persist dropdown changes
-    document.querySelectorAll(".scoreSelect").forEach(select => {
-      select.addEventListener("change", e => {
-        const player = e.target.dataset.player;
-        const round = parseInt(e.target.dataset.round, 10);
-        const points = parseInt(e.target.value, 10);
-        socket.emit("awardPoint", { roomCode, playerName: player, roundNumber: round, points });
-      });
-    });
-  }
 
   /* --- Helpers --- */
-  function toRoundMap(data, round) {
-    const map = {};
-    (data || []).forEach(d => {
-      const val = (d.rounds && d.rounds[round]) != null ? d.rounds[round] : 0;
-      map[escapeHTML(d.player_name)] = parseInt(val, 10) === 1 ? 1 : 0;
-    });
-    return map;
-  }
-  function escapeHTML(str) {
-    const div = document.createElement('div');
-    div.innerText = String(str || "");
-    return div.innerHTML;
-  }
   function toggleAccordion(id){ document.getElementById(id).classList.toggle("open"); }
   function openAccordion(id){ document.getElementById(id).classList.add("open"); }
   function closeAccordion(id){ document.getElementById(id).classList.remove("open"); }
-
-  /* --- Popup close logic --- */
-  document.getElementById("closePopup").onclick = () => {
-    document.getElementById("roundPopup").style.display = "none";
-    showQuestionBtn.disabled = false;
-  };
-  document.getElementById("roundPopup").addEventListener("click", e => {
-    if (e.target.id === "roundPopup") {
-      document.getElementById("roundPopup").style.display = "none";
-      showQuestionBtn.disabled = false;
-    }
-  });
-
-  /* --- Show Question function --- */
-  function showQuestion() {
-    if (!pendingQuestion) return;
-    const { questionId, prompt, playerCount, roundNumber, myAnswer } = pendingQuestion;
-
-    document.getElementById("qaSection").style.display = "block";
-    openAccordion("questionBox");
-    closeAccordion("answersTableWrapper");
-    document.getElementById("answersAccordion").style.display = "none";
-
-    document.getElementById("questionPrompt").innerText = `Round ${roundNumber}: ${prompt}`;
-    document.getElementById("progress").innerText = `Submitted: 0 / ${playerCount}`;
-
-    document.getElementById("popupQuestion").innerText = `Round ${roundNumber}: ${prompt}`;
-    document.getElementById("roundPopup").style.display = "flex";
-
-    if (answersShown || myAnswer) {
-      submitBtn.disabled = true;
-      inputBox.disabled = true;
-      document.getElementById("toggleSubmit").checked = false;
-      inputBox.value = myAnswer || "";
-    } else {
-      submitBtn.disabled = false;
-      inputBox.disabled = false;
-      document.getElementById("toggleSubmit").checked = true;
-      inputBox.value = "";
-      submitBtn.onclick = () => {
-        const answer = inputBox.value.trim();
-        if (!answer) return;
-        socket.emit("submitAnswer", { roomCode, name: myName, questionId, answer });
-        submitBtn.disabled = true;
-        inputBox.disabled = true;
-        document.getElementById("toggleSubmit").checked = false;
-      };
-    }
-  }
 </script>
 </body>
 </html>
