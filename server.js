@@ -1,8 +1,6 @@
 // Did not include: Server-side (block actions if closed)
-
 // v1.1.3 — Udderly the Same, Game Server
 
-// v1.1.3 — Herd Mentality Game Server
 
 /* --- Imports and setup --- */
 const express = require("express");
@@ -330,20 +328,34 @@ io.on("connection", (socket) => {
     }
   });
 
-  /* --- Show answers --- */
-  socket.on("showAnswers", async ({ roomCode }) => {
-    const rc = roomCode.toUpperCase();
-    const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
-    if (!room.rows.length || !room.rows[0].active_question_id) return;
+/* --- Show answers and close round --- */
+socket.on("showAnswers", async ({ roomCode }) => {
+  const rc = roomCode.toUpperCase();
+  const room = await pool.query(
+    "SELECT current_round, active_question_id FROM rooms WHERE code=$1",
+    [rc]
+  );
+  if (!room.rows.length || !room.rows[0].active_question_id) return;
 
-    const rr = await pool.query(
-      "SELECT player_name AS name, answer FROM answers WHERE room_code=$1 AND question_id=$2 AND round_number=$3 ORDER BY name ASC",
-      [rc, room.rows[0].active_question_id, room.rows[0].current_round]
-    );
-    io.to(rc).emit("answersRevealed", rr.rows);
+  // reveal answers
+  const rr = await pool.query(
+    "SELECT player_name AS name, answer
+     FROM answers
+     WHERE room_code=$1 AND question_id=$2 AND round_number=$3
+     ORDER BY name ASC",
+    [rc, room.rows[0].active_question_id, room.rows[0].current_round]
+  );
+  io.to(rc).emit("answersRevealed", rr.rows);
 
-    await emitScoreboard(rc);
-  });
+  // update scoreboard
+  await emitScoreboard(rc);
+
+  // close the round by clearing active_question_id
+  await pool.query("UPDATE rooms SET active_question_id=NULL WHERE code=$1", [rc]);
+
+  // notify clients that round is closed
+  io.to(rc).emit("roundClosed");
+});
 
   /* --- Award points --- */
   socket.on("awardPoint", async ({ roomCode, playerName, roundNumber, points }) => {
@@ -377,4 +389,5 @@ io.on("connection", (socket) => {
 /* --- Start server --- */
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
 
