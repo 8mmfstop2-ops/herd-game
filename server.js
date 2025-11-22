@@ -2,6 +2,8 @@
 
 // v1.1.3 — Udderly the Same, Game Server
 
+// v1.1.3 — Herd Mentality Game Server
+
 /* --- Imports and setup --- */
 const express = require("express");
 const http = require("http");
@@ -140,18 +142,34 @@ app.delete("/api/questions/:id", async (req, res) => {
 app.post("/api/player/join", async (req, res) => {
   const { name, roomCode } = req.body;
   const rc = roomCode.toUpperCase();
+  const rawName = name.trim();
+  const normalizedName = rawName.toLowerCase();
+
   const room = await pool.query("SELECT * FROM rooms WHERE code=$1", [rc]);
   if (room.rows.length === 0) return res.status(404).json({ error: "Room not found" });
   if (room.rows[0].status === "closed") return res.status(403).json({ error: "Room closed" });
 
-  const normalizedName = name.trim().toLowerCase();
-  const existing = await pool.query("SELECT 1 FROM players WHERE LOWER(name)=$1 AND room_code=$2", [normalizedName, rc]);
-  if (existing.rows.length > 0) {
-    return res.status(400).json({ error: "Name already taken in this room" });
+  // check active sockets
+  const activeNames = (() => {
+    const set = io.sockets.adapter.rooms.get(rc) || new Set();
+    const list = [];
+    for (const sid of set) {
+      const s = io.sockets.sockets.get(sid);
+      if (s?.data?.name) list.push(s.data.name.toLowerCase());
+    }
+    return list;
+  })();
+  if (activeNames.includes(normalizedName)) {
+    return res.status(400).json({ error: "Name already active in this room" });
   }
 
-  await pool.query("INSERT INTO players (name, room_code) VALUES ($1,$2)", [name.trim(), rc]);
-  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(name.trim())}` });
+  // ensure DB row exists
+  await pool.query(
+    "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
+    [rawName, rc]
+  );
+
+  res.json({ success: true, redirect: `/player-board.html?room=${rc}&name=${encodeURIComponent(rawName)}` });
 });
 
 /* --- Helpers --- */
@@ -161,7 +179,7 @@ function getActiveNames(roomCode) {
   for (const socketId of connected) {
     const s = io.sockets.sockets.get(socketId);
     if (s && s.data && s.data.name) {
-      activeNames.push(s.data.name.toLowerCase()); // normalize
+      activeNames.push(s.data.name.toLowerCase());
     }
   }
   return activeNames;
@@ -171,7 +189,7 @@ async function getActiveStats(roomCode) {
   const dbPlayers = await pool.query("SELECT name, submitted FROM players WHERE room_code=$1 ORDER BY name ASC", [roomCode]);
   const activeNames = getActiveNames(roomCode);
   const merged = dbPlayers.rows.map(p => ({
-    name: p.name, // display name
+    name: p.name,
     submitted: p.submitted,
     active: activeNames.includes(p.name.toLowerCase())
   }));
@@ -198,8 +216,7 @@ async function emitPlayerList(roomCode) {
   const { merged, activeCount, submittedActiveCount } = await getActiveStats(roomCode);
   io.to(roomCode).emit("playerList", {
     players: merged,
-    activeCount,
-    submittedCount: submittedActiveCount
+  submittedCount: submittedActiveCount
   });
   io.to(roomCode).emit("submissionProgress", {
     submittedCount: submittedActiveCount,
@@ -212,37 +229,29 @@ async function emitScoreboard(roomCode) {
   io.to(roomCode).emit("scoreboardUpdated", scoreboard);
 }
 
-
 /* --- Socket.IO game logic --- */
 io.on("connection", (socket) => {
   /* --- Player joins lobby --- */
   socket.on("joinLobby", async ({ roomCode, name }) => {
     const rc = roomCode.toUpperCase();
-    const normalizedName = name.trim().toLowerCase();
+    const displayName = name.trim();
+    const normalizedName = displayName.toLowerCase();
 
-    // Save normalized name for comparisons, keep original for display
-    socket.data.name = normalizedName;
-    socket.data.displayName = name.trim();
     socket.data.roomCode = rc;
+    socket.data.displayName = displayName;
+    socket.data.name = normalizedName;
     socket.join(rc);
 
-    // Reject if name already taken (case-insensitive)
-    const existing = await pool.query(
-      "SELECT 1 FROM players WHERE LOWER(name)=$1 AND room_code=$2",
-      [normalizedName, rc]
+    // ensure DB row exists; reuse if present
+    await pool.query(
+      "INSERT INTO players (name, room_code) VALUES ($1,$2) ON CONFLICT (LOWER(name), room_code) DO NOTHING",
+      [displayName, rc]
     );
-    if (existing.rows.length > 0) {
-      socket.emit("loginError", "Name already taken in this room.");
-      return;
-    }
-
-    // Insert with original display name
-    await pool.query("INSERT INTO players (name, room_code) VALUES ($1,$2)", [socket.data.displayName, rc]);
 
     await emitPlayerList(rc);
     await emitScoreboard(rc);
 
-    // If a round is already active, send question + progress
+    // if a round is active, sync question and progress
     const room = await pool.query("SELECT current_round, active_question_id FROM rooms WHERE code=$1", [rc]);
     if (room.rows.length && room.rows[0].active_question_id) {
       const q = await pool.query("SELECT prompt FROM questions WHERE id=$1", [room.rows[0].active_question_id]);
@@ -358,9 +367,9 @@ io.on("connection", (socket) => {
 
   /* --- Disconnect --- */
   socket.on("disconnect", async () => {
-    const r = socket.data?.roomCode;
-    if (r) {
-      await emitPlayerList(r);
+    const rc = socket.data?.roomCode;
+    if (rc) {
+      await emitPlayerList(rc);
     }
   });
 });
@@ -368,3 +377,4 @@ io.on("connection", (socket) => {
 /* --- Start server --- */
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log("Herd Mentality Game running on port " + PORT));
+
